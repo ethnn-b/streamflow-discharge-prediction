@@ -1,3 +1,2 @@
-__pycache__/*
-trained_models_cache/*
-evaluation*/
+*/__pycache__/*
+.venv/*

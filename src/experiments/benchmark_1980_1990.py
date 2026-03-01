@@ -122,11 +122,11 @@ def run_ordered_missforest_chaining(df_full_gapped, seed_start, seed_end, window
 def run_benchmark(discharge_path='discharge_data_cleaned.csv',
                   lat_long_path='lat_long_discharge.csv',
                   contrib_path='mahanadi_contribs.csv',
-                  test_mode=False):
+                  test_mode=False,
+                  window_years=3):
                   
     search_start = '1980-01-01'
-    search_end = '2000-12-31'
-    seed_window_years = 3
+    search_end = '1990-12-31'
     target_gap_percentage = 10.0
     gap_lengths = [30] if test_mode else [3, 7, 30, 100]
 
@@ -134,7 +134,7 @@ def run_benchmark(discharge_path='discharge_data_cleaned.csv',
     os.makedirs(out_dir, exist_ok=True)
 
     print("="*60)
-    print(f"Running Refactored Benchmark (1980-2000)")
+    print(f"Running Refactored Benchmark (1980-1990)")
     print(f"Test mode: {test_mode}")
     print("="*60)
 
@@ -154,7 +154,7 @@ def run_benchmark(discharge_path='discharge_data_cleaned.csv',
     distance_matrix = build_distance_matrix(df_coords, all_stations).loc[all_stations, all_stations]
     connectivity_matrix = build_connectivity_matrix(df_contrib, all_stations, station_to_vcode).loc[all_stations, all_stations]
 
-    seed_window_days = (seed_window_years * 365) + (seed_window_years // 4)
+    seed_window_days = (window_years * 365) + (window_years // 4)
     seed_start, seed_end = find_best_data_window(df_full_original, discharge_cols, search_start, search_end, seed_window_days)
     
     df_seed_gapped = df_full_original.loc[seed_start:seed_end].copy()
@@ -221,7 +221,7 @@ def run_benchmark(discharge_path='discharge_data_cleaned.csv',
         # 6. Ordered MissForest
         try:
             print("\nMethod 6: Ordered MissForest (Chaining)")
-            df_imp_full = run_ordered_missforest_chaining(df_full_gapped, seed_start, seed_end, seed_window_years, discharge_cols, temporal_features, distance_matrix, connectivity_matrix)
+            df_imp_full = run_ordered_missforest_chaining(df_full_gapped, seed_start, seed_end, window_years, discharge_cols, temporal_features, distance_matrix, connectivity_matrix)
             df_imp = df_imp_full.loc[df_eval_original.index]
             metrics, _, _ = evaluate_imputation_performance(df_eval_original, df_eval_gapped, df_imp, discharge_cols)
             gap_res['Ordered_MissForest'] = metrics
@@ -235,7 +235,7 @@ def run_benchmark(discharge_path='discharge_data_cleaned.csv',
     }, orient='index')
     results_df.index.names = ['Gap_Length', 'Method']
 
-    csv_out = os.path.join(out_dir, "benchmark_1980_2000_results.csv")
+    csv_out = os.path.join(out_dir, "benchmark_1980_1990_results.csv")
     results_df.to_csv(csv_out)
     print("\n" + "="*60)
     print("FINAL RESULTS")
@@ -247,8 +247,9 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--test-mode', action='store_true')
+    parser.add_argument('--window-years', type=int, default=3, help='Window size in years for training blocks')
     args = parser.parse_args()
     
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        run_benchmark(test_mode=args.test_mode)
+        run_benchmark(test_mode=args.test_mode, window_years=args.window_years)
