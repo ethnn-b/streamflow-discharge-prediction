@@ -119,6 +119,179 @@ def run_ordered_missforest_chaining(df_full_gapped, seed_start, seed_end, window
     return df_final_imputed.sort_index()
 
 
+def plot_selected_gaps(df_original, df_gapped, df_imputed, discharge_cols, gap_length, out_dir, method_name):
+    print(f"    Plotting best gap for {method_name}...")
+    import matplotlib.pyplot as plt
+    try:
+        import seaborn as sns
+    except ImportError:
+        import matplotlib.pyplot as sns  # Fallback just in case, won't work perfectly for themes but avoids fatal error
+        
+    import os
+    
+    # 1. Pick only the station that has the most completeness of data
+    completeness = df_original[discharge_cols].notna().sum()
+    target_station = completeness.idxmax()
+    
+    gap_candidates = []
+    
+    # 2. Find the best gap for this single target station
+    gap_mask = df_gapped[target_station].isnull() & df_original[target_station].notnull()
+    
+    is_gap = gap_mask.astype(int)
+    gap_starts = is_gap[(is_gap == 1) & (is_gap.shift(1, fill_value=0) == 0)].index
+    gap_ends = is_gap[(is_gap == 1) & (is_gap.shift(-1, fill_value=0) == 0)].index
+    
+    for start_idx, end_idx in zip(gap_starts, gap_ends):
+        orig_vals = df_original.loc[start_idx:end_idx, target_station]
+        imp_vals = df_imputed.loc[start_idx:end_idx, target_station]
+        if len(orig_vals) >= 3: 
+            variance = orig_vals.var()
+            if pd.notna(variance):
+                mse = ((orig_vals - imp_vals) ** 2).mean()
+                if pd.notna(mse):
+                    gap_candidates.append((start_idx, end_idx, variance, mse))
+                
+    if gap_candidates:
+        variances = [g[2] for g in gap_candidates]
+        var_threshold = np.percentile(variances, 75)
+        
+        high_var_gaps = [g for g in gap_candidates if g[2] >= var_threshold]
+        if not high_var_gaps:
+            high_var_gaps = gap_candidates
+            
+        best_gap = min(high_var_gaps, key=lambda g: g[3]) # minimum MSE among highest variance gaps
+        station, start_idx, end_idx = target_station, best_gap[0], best_gap[1]
+        
+        # 3. Zoom a bit more: shorter x-axis period
+        context_days = min(15, max(5, gap_length // 2))
+        plot_start = start_idx - pd.Timedelta(days=context_days)
+        plot_end = end_idx + pd.Timedelta(days=context_days)
+        
+        plot_start = max(plot_start, df_original.index.min())
+        plot_end = min(plot_end, df_original.index.max())
+        
+        # 4. Apply font and dpi specs
+        sns.set_theme(style="whitegrid")
+        plt.rcParams.update({'font.family': 'sans-serif', 'font.size': 14})
+        
+        fig, ax = plt.subplots(figsize=(12, 6))
+        
+        ax.plot(df_original.loc[plot_start:plot_end].index, df_original.loc[plot_start:plot_end, station], 
+                label='Original', color='#5B9BD5', linewidth=2.5, alpha=0.8)
+        
+        ax.plot(df_imputed.loc[start_idx:end_idx].index, df_imputed.loc[start_idx:end_idx, station], 
+                label=f'Imputed ({method_name})', color='#FFC000', linewidth=2.5, linestyle='--')
+        
+        ax.axvspan(start_idx, end_idx, color='gray', alpha=0.15, label='Gap Region')
+        
+        ax.set_title(f'Hydrograph - Station: {station} (Most Complete), Gap: {gap_length} days', pad=15)
+        ax.set_ylabel('Discharge')
+        ax.set_xlabel('')
+        
+        ax.yaxis.grid(True, linestyle='-', linewidth=1, color='#D9D9D9')
+        ax.xaxis.grid(False)
+        ax.set_axisbelow(True)
+        sns.despine(ax=ax, left=True, bottom=False, top=True, right=True)
+        ax.spines['bottom'].set_color('#D9D9D9')
+        ax.tick_params(axis='x', rotation=45)
+        
+        ax.legend(title='', loc='upper right', frameon=True)
+        
+        plt.tight_layout()
+        plot_filename = os.path.join(out_dir, f"hydrograph_{method_name.replace(' ', '_')}_{gap_length}d_{station}.png")
+        plt.savefig(plot_filename, dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"    Saved hydrograph to {plot_filename}")
+
+
+def plot_overall_results(df_original, df_gapped, df_imputed, discharge_cols, gap_length, out_dir, method_name):
+    print(f"    Plotting overall results for {method_name}...")
+    import matplotlib.pyplot as plt
+    try:
+        import seaborn as sns
+    except ImportError:
+        import matplotlib.pyplot as sns
+        
+    import os
+    
+    completeness = df_original[discharge_cols].notna().sum()
+    target_station = completeness.idxmax()
+    
+    all_true_vals = []
+    all_pred_vals = []
+    
+    for station in discharge_cols:
+        gap_mask = df_gapped[station].isnull() & df_original[station].notnull()
+        if gap_mask.sum() > 0:
+            all_true_vals.extend(df_original.loc[gap_mask, station].values)
+            all_pred_vals.extend(df_imputed.loc[gap_mask, station].values)
+            
+    true_vals = pd.Series(all_true_vals)
+    pred_vals = pd.Series(all_pred_vals)
+    
+    if true_vals.empty or pred_vals.empty:
+        return
+        
+    sns.set_theme(style="whitegrid")
+    plt.rcParams.update({'font.family': 'sans-serif', 'font.size': 14})
+    
+    # 1. True vs Predicted Scatter Plot (Global, all stations)
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.scatter(true_vals, pred_vals, alpha=0.3, edgecolors='k', label=f'Imputed Values (Gaps: {gap_length}d)')
+    
+    min_val = min(true_vals.min(), pred_vals.min()) if not true_vals.empty else 0
+    max_val = max(true_vals.max(), pred_vals.max()) if not true_vals.empty else 1
+    
+    if len(true_vals) > 1:
+        ss_tot = np.sum((true_vals - np.mean(true_vals))**2)
+        ss_res = np.sum((true_vals - pred_vals)**2)
+        r2_val = 1 - (ss_res / ss_tot) if ss_tot > 0 else np.nan
+    else:
+        r2_val = np.nan
+        
+    ax.plot([min_val, max_val], [min_val, max_val], 'r--', lw=2, label=f'1:1 Line ($R^2={r2_val:.3f}$)')
+    
+    ax.set_title(f'True vs. Predicted (Gaps: {gap_length}d) - {method_name}')
+    ax.set_xlabel('True Values')
+    ax.set_ylabel('Predicted Values')
+    ax.grid(True, linestyle='-', linewidth=1, color='#D9D9D9')
+    ax.legend(loc='upper left')
+    
+    plt.tight_layout()
+    scatter_filename = os.path.join(out_dir, f"scatter_{method_name.replace(' ', '_')}_{gap_length}d_{target_station}.png")
+    plt.savefig(scatter_filename, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # 2. Complete Hydrograph Plot
+    # Re-extract just the single station for the hydrograph
+    target_mask = df_gapped[target_station].isnull() & df_original[target_station].notnull()
+    true_vals_station = df_original.loc[target_mask, target_station]
+    pred_vals_station = df_imputed.loc[target_mask, target_station]
+    
+    fig, ax = plt.subplots(figsize=(15, 6))
+    ax.plot(df_original.index, df_original[target_station], label='Original Data (Ground Truth)', color='#5B9BD5', linewidth=1.5, alpha=0.9)
+    ax.scatter(pred_vals_station.index, pred_vals_station.values, color='red', label=f'Imputed Values ({method_name})', zorder=5)
+    
+    ax.set_title(f'Imputation Results for Station: {target_station} (Gaps: {gap_length}d)')
+    ax.set_ylabel('Discharge')
+    ax.set_xlabel('Date')
+    
+    ax.yaxis.grid(True, linestyle='--', linewidth=0.5, color='#D9D9D9')
+    ax.xaxis.grid(True, linestyle='--', linewidth=0.5, color='#D9D9D9')
+    ax.set_axisbelow(True)
+    sns.despine(ax=ax, left=True, bottom=False, top=True, right=True)
+    ax.spines['bottom'].set_color('#D9D9D9')
+    
+    ax.legend(loc='upper right', frameon=True)
+    
+    plt.tight_layout()
+    overall_hydro_filename = os.path.join(out_dir, f"overall_hydrograph_{method_name.replace(' ', '_')}_{gap_length}d_{target_station}.png")
+    plt.savefig(overall_hydro_filename, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"    Saved overall plots to {out_dir}")
+
+
 def run_benchmark(discharge_path='discharge_data_cleaned.csv',
                   lat_long_path='lat_long_discharge.csv',
                   contrib_path='mahanadi_contribs.csv',
@@ -226,6 +399,10 @@ def run_benchmark(discharge_path='discharge_data_cleaned.csv',
             metrics, _, _ = evaluate_imputation_performance(df_eval_original, df_eval_gapped, df_imp, discharge_cols)
             gap_res['Ordered_MissForest'] = metrics
             print(f"KGE: {metrics['KGE']:.4f}")
+            
+            plot_selected_gaps(df_full_original, df_full_gapped, df_imp_full, discharge_cols, gap, out_dir, 'Ordered_MissForest')
+            plot_overall_results(df_full_original, df_full_gapped, df_imp_full, discharge_cols, gap, out_dir, 'Ordered_MissForest')
+            
         except Exception as e: print(e)
 
         all_results[f"{gap}_day_gap"] = gap_res

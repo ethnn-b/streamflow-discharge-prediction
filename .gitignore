@@ -1,3 +1,6 @@
 */__pycache__/*
 .venv/*
 benchmark_results_*/
+streamflow_discharge.tex
+media/*
+Streamflow_Prediction_Edited.docx
