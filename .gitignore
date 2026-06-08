@@ -2,5 +2,7 @@
 .venv/*
 benchmark_results_*/
 streamflow_discharge.tex
+benchmark_us_*/
+us_data/*
 media/*
 Streamflow_Prediction_Edited.docx
