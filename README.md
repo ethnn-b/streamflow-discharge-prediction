@@ -29,9 +29,9 @@ uv run python app.py
 - `src/utils/`: Data loading, spatial matrices, and metrics.
 - `benchmark_*` folders: Saved benchmark result CSVs.
 
-## Demo-Friendly Data Layout (`space-demo` branch)
+## Demo-Friendly Data Layout
 
-The `space-demo` branch organizes ready-to-use CSVs for Hugging Face demo/testing:
+Ready-to-use CSVs for Hugging Face demo/testing:
 
 - `mahanadi_data/`
   - `mahanadi_discharge_data.csv`
@@ -44,3 +44,11 @@ The `space-demo` branch organizes ready-to-use CSVs for Hugging Face demo/testin
   - `us_top10_connectivity_matrix.csv`
 
 Note: `us_top10_discharge_data_demo.csv` intentionally contains missing values so it can be used directly for imputation demos.
+
+## Branches
+
+- `main` — canonical branch. Contains the full research codebase (`src/`, experiment scripts, benchmark results), the Hugging Face Space app (`app.py`), the demo data layout above, and the paper source (`paper_latex_v2/`).
+- `space-demo` — currently mirrors `main`; used as the active working branch for space/demo-data changes before they land on `main`.
+- `archive/main-legacy` — frozen snapshot of the original, pre-restructure prototype (flat file layout, no `src/` package, no paper). Kept for reference only; superseded by `main`.
+
+Previously this repo had several other branches (`final`, `v2026`, and a handful of `import/*` branches from an automated import tool) that were either fully contained in `main`'s history or unrelated one-off snapshots with no unique value. These were deleted to keep the branch list meaningful.
