@@ -31,7 +31,7 @@ Note: `requirements.txt` is a separate, pinned dependency list used only by the 
 - `src/experiments/`: Benchmark scripts, grouped by study area:
   - Mahanadi basin: `benchmark_1980_1990.py` (natural vs. ordered MissForest), `station_comparison.py` (per-station hydrographs), `contribution_ablation.py`/`contribution_ablation_sweep.py` (with/without hydrological contribution data), `gap_init_comparison.py`/`gap_init_comparison_sweep.py` (gap-initialization strategies)
   - Kaveri basin: `kaveri_benchmark.py`, `kaveri_station_comparison.py`
-  - US cross-regional: `us_benchmark_full.py` (current, reproducible version); `benchmark_us_data.py`/`benchmark_us_connectivity.py` (earlier, non-reproducible-RNG versions, kept only because `us_benchmark_full.py` still imports shared helpers from `benchmark_us_data.py`)
+  - US cross-regional: `us_benchmark_full.py` (current, reproducible version); `benchmark_us_data.py`/`benchmark_us_connectivity.py`
 - Result folders (e.g. `station_comparison_*/`, `kaveri_station_comparison_*/`, `us_benchmark_full_*/`, `contribution_ablation_results_*/`): saved figures/CSVs from the scripts above.
 - `contribution_ablation_sweep_combined.csv`, `gap_init_comparison_sweep_combined.csv`/`_means.csv`: multi-seed robustness sweep results aggregated across runs (produced by the `*_sweep.py` scripts).
 
@@ -57,6 +57,6 @@ Note: `us_top10_discharge_data_demo.csv` intentionally contains missing values s
 
 ## Branches
 
-- `main` — canonical branch. Contains the full research codebase (`src/`, experiment scripts, benchmark results), the Hugging Face Space app (`app.py`), the demo data layout above, and the paper source (`paper_latex_v2/`).
+- `main` — canonical branch. Contains the full research codebase (`src/`, experiment scripts, benchmark results), the Hugging Face Space app (`app.py`) and the demo data layout above.
 - `space-demo` — currently mirrors `main`; used as the active working branch for space/demo-data changes before they land on `main`.
 
