@@ -23,3 +23,4 @@ us_benchmark_full_top10_control/
 gap_init_comparison_results_*/
 gap_init_comparison_sweep_combined.csv
 gap_init_comparison_sweep_means.csv
+.DS_Store
