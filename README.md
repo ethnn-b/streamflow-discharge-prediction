@@ -1,4 +1,4 @@
-# Streamflow Discharge Imputation (Ordered Distance-Weighted MissForest)
+# Streamflow Discharge Imputation (Physically Informed MissForest (PIMF))
 
 This repository contains code and data for streamflow discharge imputation using an ordered, distance-weighted MissForest framework with optional hydrological connectivity and temporal features.
 
@@ -26,7 +26,7 @@ Note: `requirements.txt` is a separate, pinned dependency list used only by the 
 ## What You Will Find
 
 - `app.py`: Gradio app for drag-and-drop CSV imputation.
-- `src/imputers/missforest.py`: Ordered distance-weighted MissForest implementation.
+- `src/imputers/missforest.py`: Physically Informed MissForest (PIMF) implementation.
 - `src/utils/`: Data loading, spatial matrices, and metrics.
 - `src/experiments/`: Benchmark scripts, grouped by study area:
   - Mahanadi basin: `benchmark_1980_1990.py` (natural vs. ordered MissForest), `station_comparison.py` (per-station hydrographs), `contribution_ablation.py`/`contribution_ablation_sweep.py` (with/without hydrological contribution data), `gap_init_comparison.py`/`gap_init_comparison_sweep.py` (gap-initialization strategies)
