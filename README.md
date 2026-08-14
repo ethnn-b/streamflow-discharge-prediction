@@ -31,7 +31,7 @@ Note: `requirements.txt` is a separate, pinned dependency list used only by the 
 - `src/experiments/`: Benchmark scripts, grouped by study area:
   - Mahanadi basin: `benchmark_1980_1990.py` (natural vs. ordered MissForest), `station_comparison.py` (per-station hydrographs), `contribution_ablation.py`/`contribution_ablation_sweep.py` (with/without hydrological contribution data), `gap_init_comparison.py`/`gap_init_comparison_sweep.py` (gap-initialization strategies)
   - Kaveri basin: `kaveri_benchmark.py`, `kaveri_station_comparison.py`
-  - US cross-regional: `us_benchmark_full.py` (current, reproducible version); `benchmark_us_data.py`/`benchmark_us_connectivity.py`
+  - US cross-regional: `us_benchmark_full.py` (current, reproducible version), which imports shared helpers from `benchmark_us_data.py`
 - Result folders (e.g. `station_comparison_*/`, `kaveri_station_comparison_*/`, `us_benchmark_full_*/`, `contribution_ablation_results_*/`): saved figures/CSVs from the scripts above.
 - `contribution_ablation_sweep_combined.csv`, `gap_init_comparison_sweep_combined.csv`/`_means.csv`: multi-seed robustness sweep results aggregated across runs (produced by the `*_sweep.py` scripts).
 
