@@ -69,9 +69,9 @@ def plot_init_comparison_bar(gap_lengths, values_by_method, ylabel, title, out_p
     plt.close()
 
 
-def run_gap_init_comparison(discharge_path='discharge_data_cleaned.csv',
-                             lat_long_path='lat_long_discharge.csv',
-                             contrib_path='mahanadi_contribs.csv',
+def run_gap_init_comparison(discharge_path='mahanadi_data/mahanadi_discharge_data.csv',
+                             lat_long_path='mahanadi_data/mahanadi_station_coordinates.csv',
+                             contrib_path='mahanadi_data/mahanadi_connectivity_matrix.csv',
                              window_years=3,
                              target_gap_percentage=10.0,
                              missing_threshold=30.0,

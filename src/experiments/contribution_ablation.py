@@ -31,9 +31,9 @@ from ..utils.spatial import build_distance_matrix, build_connectivity_matrix
 from .benchmark_1980_1990 import run_ordered_missforest_chaining, evaluate_imputation_performance
 
 # The 16 gauging stations documented in Table 1 of the manuscript. The raw
-# discharge_data_cleaned.csv contains additional stations not part of the
-# reported Mahanadi network; we restrict to Table 1's stations for fidelity
-# to the paper's stated study area.
+# mahanadi_data/mahanadi_discharge_data.csv contains additional stations not
+# part of the reported Mahanadi network; we restrict to Table 1's stations
+# for fidelity to the paper's stated study area.
 MAHANADI_TABLE1_STATIONS = [
     'andhiyarkhore', 'bamnidhi', 'baronda', 'basantpur', 'ghatora', 'jondhra',
     'kelo', 'kotni', 'kurubhata', 'paramanpur', 'patharidih', 'rajim',
@@ -73,9 +73,9 @@ def plot_contribution_bar(gap_lengths, without_vals, with_vals, ylabel, title, o
     plt.close()
 
 
-def run_contribution_ablation(discharge_path='discharge_data_cleaned.csv',
-                               lat_long_path='lat_long_discharge.csv',
-                               contrib_path='mahanadi_contribs.csv',
+def run_contribution_ablation(discharge_path='mahanadi_data/mahanadi_discharge_data.csv',
+                               lat_long_path='mahanadi_data/mahanadi_station_coordinates.csv',
+                               contrib_path='mahanadi_data/mahanadi_connectivity_matrix.csv',
                                window_years=3,
                                target_gap_percentage=10.0,
                                missing_threshold=30.0,

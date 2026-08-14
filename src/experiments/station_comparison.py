@@ -25,9 +25,9 @@ from .benchmark_1980_1990 import (
 
 
 def generate_station_figures(target_stations,
-                              discharge_path='discharge_data_cleaned.csv',
-                              lat_long_path='lat_long_discharge.csv',
-                              contrib_path='mahanadi_contribs.csv',
+                              discharge_path='mahanadi_data/mahanadi_discharge_data.csv',
+                              lat_long_path='mahanadi_data/mahanadi_station_coordinates.csv',
+                              contrib_path='mahanadi_data/mahanadi_connectivity_matrix.csv',
                               window_years=3,
                               target_gap_percentage=10.0,
                               search_start='1980-01-01',
