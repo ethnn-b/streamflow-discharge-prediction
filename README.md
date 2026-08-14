@@ -59,5 +59,4 @@ Note: `us_top10_discharge_data_demo.csv` intentionally contains missing values s
 
 - `main` — canonical branch. Contains the full research codebase (`src/`, experiment scripts, benchmark results), the Hugging Face Space app (`app.py`), the demo data layout above, and the paper source (`paper_latex_v2/`).
 - `space-demo` — currently mirrors `main`; used as the active working branch for space/demo-data changes before they land on `main`.
-- `archive/main-legacy` — frozen snapshot of the original, pre-restructure prototype (flat file layout, no `src/` package, no paper). Kept for reference only; superseded by `main`.
 
