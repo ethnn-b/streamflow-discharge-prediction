@@ -1,6 +1,9 @@
 */__pycache__/*
 .venv/*
 benchmark_results_*/
+contribution_ablation_results_*/
+contribution_ablation_sweep_combined.csv
+kaveri_benchmark_results_*/
 streamflow_discharge.tex
 benchmark_us_*/
 us_data/*
@@ -8,4 +11,14 @@ us_data/*
 !us_data/us_top10_station_coordinates.csv
 !us_data/us_top10_connectivity_matrix.csv
 media/*
-Streamflow_Prediction_Edited.docx
+*.pdf
+
+# Local files
+paper_latex_v2/
+station_comparison_*/
+kaveri_station_comparison_*/
+us_benchmark_full_*/
+us_benchmark_full_top10_control/
+gap_init_comparison_results_*/
+gap_init_comparison_sweep_combined.csv
+gap_init_comparison_sweep_means.csv

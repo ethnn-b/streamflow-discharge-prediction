@@ -51,4 +51,3 @@ Note: `us_top10_discharge_data_demo.csv` intentionally contains missing values s
 - `space-demo` — currently mirrors `main`; used as the active working branch for space/demo-data changes before they land on `main`.
 - `archive/main-legacy` — frozen snapshot of the original, pre-restructure prototype (flat file layout, no `src/` package, no paper). Kept for reference only; superseded by `main`.
 
-Previously this repo had several other branches (`final`, `v2026`, and a handful of `import/*` branches from an automated import tool) that were either fully contained in `main`'s history or unrelated one-off snapshots with no unique value. These were deleted to keep the branch list meaningful.
