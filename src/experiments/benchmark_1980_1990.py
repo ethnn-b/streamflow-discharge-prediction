@@ -300,9 +300,9 @@ def plot_overall_results_subplots(df_original, data_list, discharge_cols, out_di
     print(f"    Saved overall subplots to {overall_filename}")
 
 
-def run_benchmark(discharge_path='discharge_data_cleaned.csv',
-                  lat_long_path='lat_long_discharge.csv',
-                  contrib_path='mahanadi_contribs.csv',
+def run_benchmark(discharge_path='mahanadi_data/mahanadi_discharge_data.csv',
+                  lat_long_path='mahanadi_data/mahanadi_station_coordinates.csv',
+                  contrib_path='mahanadi_data/mahanadi_connectivity_matrix.csv',
                   test_mode=False,
                   window_years=3):
                   
