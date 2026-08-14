@@ -45,19 +45,19 @@ def evaluate_imputation_performance(df_original, df_gapped, df_imputed, discharg
         return {'RMSE': np.nan, 'MAE': np.nan, 'R2': np.nan, 'NSE': np.nan, 'KGE': np.nan}, [], []
 
 
-def run_ordered_missforest_chaining(df_full_gapped, seed_start, seed_end, window_years, discharge_cols, temporal_features, distance_matrix, connectivity_matrix, ordering='most_full_first'):
-    print(f"  Starting 3-year *chaining* ordered MissForest process (ordering: {ordering})...")
-    
+def run_ordered_missforest_chaining(df_full_gapped, seed_start, seed_end, window_years, discharge_cols, temporal_features, distance_matrix, connectivity_matrix, ordering='most_full_first', random_state=42, initialization_method='historical_mean'):
+    print(f"  Starting 3-year *chaining* ordered MissForest process (ordering: {ordering}, init: {initialization_method})...")
+
     def create_model():
         return MissForestImputer(
             distance_matrix=distance_matrix,
             connectivity=connectivity_matrix,
             max_iter=10,
             n_estimators=100,
-            random_state=42,
+            random_state=random_state,
             distance_weighting_type='inverse',
             temporal_feature_columns=temporal_features,
-            initialization_method='historical_mean',
+            initialization_method=initialization_method,
             ordering_method=ordering
         )
 
@@ -119,7 +119,7 @@ def run_ordered_missforest_chaining(df_full_gapped, seed_start, seed_end, window
     return df_final_imputed.sort_index()
 
 
-def plot_selected_gaps_subplots(df_original, data_list, discharge_cols, out_dir, method_name):
+def plot_selected_gaps_subplots(df_original, data_list, discharge_cols, out_dir, method_name, target_station=None):
     print(f"    Plotting best gaps subplots for {method_name}...")
     import matplotlib.pyplot as plt
     try:
@@ -129,10 +129,11 @@ def plot_selected_gaps_subplots(df_original, data_list, discharge_cols, out_dir,
     import os
     import numpy as np
     import pandas as pd
-    
-    completeness = df_original[discharge_cols].notna().sum()
-    target_station = completeness.idxmax()
-    
+
+    if target_station is None:
+        completeness = df_original[discharge_cols].notna().sum()
+        target_station = completeness.idxmax()
+
     n_gaps = len(data_list)
     
     sns.set_theme(style="whitegrid")
@@ -193,10 +194,12 @@ def plot_selected_gaps_subplots(df_original, data_list, discharge_cols, out_dir,
             ax.plot(df_imputed.loc[start_idx:end_idx].index, df_imputed.loc[start_idx:end_idx, station],
                     label=f'Imputed', color='#FFC000', linewidth=2.5, linestyle='--')
             ax.axvspan(start_idx, end_idx, color='gray', alpha=0.15, label='Gap Region')
-            
+
             ax.set_title(f'Gap: {gap_length} days', pad=5)
-            ax.set_ylabel('Discharge')
-            
+            ax.set_ylabel('Discharge (m$^3$/s)')
+            ax.text(-0.06, 1.05, f'({chr(97 + i)})', transform=ax.transAxes,
+                    fontsize=14, fontweight='bold', va='bottom', ha='right')
+
             ax.yaxis.grid(True, linestyle='-', linewidth=1, color='#D9D9D9')
             ax.xaxis.grid(False)
             ax.set_axisbelow(True)
@@ -204,8 +207,7 @@ def plot_selected_gaps_subplots(df_original, data_list, discharge_cols, out_dir,
             ax.spines['bottom'].set_color('#D9D9D9')
             if i == 0:
                 ax.legend(loc='upper right', frameon=True)
-                
-    fig.suptitle(f'Zoomed Hydrographs - Station: {target_station} ({method_name})', y=1.02, fontsize=16)
+
     plt.tight_layout()
     plot_filename = os.path.join(out_dir, f"zoomed_subplots_{method_name.replace(' ', '_')}.png")
     plt.savefig(plot_filename, dpi=300, bbox_inches='tight')
@@ -213,7 +215,7 @@ def plot_selected_gaps_subplots(df_original, data_list, discharge_cols, out_dir,
     print(f"    Saved zoomed subplots to {plot_filename}")
 
 
-def plot_overall_results_subplots(df_original, data_list, discharge_cols, out_dir, method_name):
+def plot_overall_results_subplots(df_original, data_list, discharge_cols, out_dir, method_name, target_station=None):
     print(f"    Plotting overall subplots for {method_name}...")
     import matplotlib.pyplot as plt
     try:
@@ -223,9 +225,10 @@ def plot_overall_results_subplots(df_original, data_list, discharge_cols, out_di
     import numpy as np
     import pandas as pd
     import os
-    
-    completeness = df_original[discharge_cols].notna().sum()
-    target_station = completeness.idxmax()
+
+    if target_station is None:
+        completeness = df_original[discharge_cols].notna().sum()
+        target_station = completeness.idxmax()
     n_gaps = len(data_list)
     
     sns.set_theme(style="whitegrid")
@@ -258,28 +261,30 @@ def plot_overall_results_subplots(df_original, data_list, discharge_cols, out_di
             if len(true_vals_global) > 1:
                 ss_tot = np.sum((true_vals_global - np.mean(true_vals_global))**2)
                 ss_res = np.sum((true_vals_global - pred_vals_global)**2)
-                r2_val = 1 - (ss_res / ss_tot) if ss_tot > 0 else np.nan
+                nse_val = 1 - (ss_res / ss_tot) if ss_tot > 0 else np.nan
             else:
-                r2_val = np.nan
-                
-            ax_scatter.plot([min_val, max_val], [min_val, max_val], 'r--', lw=2, label=f'1:1 Line ($R^2={r2_val:.3f}$)')
+                nse_val = np.nan
+
+            ax_scatter.plot([min_val, max_val], [min_val, max_val], 'r--', lw=2, label=f'1:1 Line ($NSE={nse_val:.3f}$)')
             ax_scatter.set_title(f'Scatter ({gap_length}d)')
-            ax_scatter.set_xlabel('True Values')
-            ax_scatter.set_ylabel('Predicted Values')
+            ax_scatter.set_xlabel('Observed Discharge (m$^3$/s)')
+            ax_scatter.set_ylabel('Predicted Discharge (m$^3$/s)')
             ax_scatter.grid(True, linestyle='-', linewidth=1, color='#D9D9D9')
             ax_scatter.legend(loc='upper left')
 
         # --- Hydrograph (Target Station) ---
         target_mask = df_gapped[target_station].isnull() & df_original[target_station].notnull()
         pred_vals_station = df_imputed.loc[target_mask, target_station]
-        
+
         ax_hydro.plot(df_original.index, df_original[target_station], label='Original Data', color='#5B9BD5', linewidth=1.5, alpha=0.9)
         if not pred_vals_station.empty:
             ax_hydro.scatter(pred_vals_station.index, pred_vals_station.values, color='red', label=f'Imputed ({gap_length}d)', zorder=5)
-        
+
         ax_hydro.set_title(f'Hydrograph ({gap_length}d)')
-        ax_hydro.set_ylabel('Discharge')
-        
+        ax_hydro.set_ylabel('Discharge (m$^3$/s)')
+        ax_hydro.text(-0.12, 1.05, f'({chr(97 + i)})', transform=ax_hydro.transAxes,
+                      fontsize=14, fontweight='bold', va='bottom', ha='right')
+
         ax_hydro.yaxis.grid(True, linestyle='--', linewidth=0.5, color='#D9D9D9')
         ax_hydro.xaxis.grid(True, linestyle='--', linewidth=0.5, color='#D9D9D9')
         ax_hydro.set_axisbelow(True)
@@ -287,8 +292,7 @@ def plot_overall_results_subplots(df_original, data_list, discharge_cols, out_di
         ax_hydro.spines['bottom'].set_color('#D9D9D9')
         if i == 0:
             ax_hydro.legend(loc='upper right', frameon=True)
-            
-    fig.suptitle(f'Overall Hydrographs and Scatter - Station: {target_station} ({method_name})', y=1.02, fontsize=16)
+
     plt.tight_layout()
     overall_filename = os.path.join(out_dir, f"overall_subplots_{method_name.replace(' ', '_')}.png")
     plt.savefig(overall_filename, dpi=300, bbox_inches='tight')
