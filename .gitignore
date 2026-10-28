@@ -17,6 +17,7 @@ media/*
 # Local files
 paper_latex_v2/
 paper_latex_v3/
+paper_latex_v4/
 station_comparison_*/
 kaveri_station_comparison_*/
 us_benchmark_full_*/
@@ -24,4 +25,7 @@ us_benchmark_full_top10_control/
 gap_init_comparison_results_*/
 gap_init_comparison_sweep_combined.csv
 gap_init_comparison_sweep_means.csv
+review.md
+feature_sets.md
 .DS_Store
+graphify-out/

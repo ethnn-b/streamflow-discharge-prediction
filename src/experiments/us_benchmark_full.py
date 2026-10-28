@@ -107,7 +107,10 @@ def run_distance_only(df_with_features, df_coords, discharge_cols, temporal_feat
         else:
             df_block_imputed = current_model.transform(df_block_gapped)
             new_model = _make_model(distance_matrix, connectivity_matrix, temporal_features, random_state)
-            new_model.fit(df_block_imputed)
+            # Fit on the gapped block, not the imputed one: transform() returns a
+            # NaN-free frame, so fit() would treat every cell as a known target and
+            # train the next model on this model's own predictions.
+            new_model.fit(df_block_gapped)
             current_model = new_model
 
         metrics, _, _ = evaluate_imputation_performance(df_block_original, df_block_gapped, df_block_imputed, discharge_cols)
@@ -138,7 +141,10 @@ def run_connectivity(df_with_features, df_coords, discharge_cols, temporal_featu
         else:
             df_block_imputed = current_model.transform(df_block_gapped)
             new_model = _make_model(distance_matrix, connectivity_matrix, temporal_features, random_state)
-            new_model.fit(df_block_imputed)
+            # Fit on the gapped block, not the imputed one: transform() returns a
+            # NaN-free frame, so fit() would treat every cell as a known target and
+            # train the next model on this model's own predictions.
+            new_model.fit(df_block_gapped)
             current_model = new_model
 
         metrics, _, _ = evaluate_imputation_performance(df_block_original, df_block_gapped, df_block_imputed, discharge_cols)
@@ -379,7 +385,10 @@ def run_distance_only_subset(df_with_features, df_coords, discharge_cols, tempor
         else:
             df_block_imputed = current_model.transform(df_block_gapped)
             new_model = _make_model(distance_matrix, connectivity_matrix, temporal_features, random_state)
-            new_model.fit(df_block_imputed)
+            # Fit on the gapped block, not the imputed one: transform() returns a
+            # NaN-free frame, so fit() would treat every cell as a known target and
+            # train the next model on this model's own predictions.
+            new_model.fit(df_block_gapped)
             current_model = new_model
 
         metrics, _, _ = evaluate_imputation_performance(df_block_original, df_block_gapped, df_block_imputed, discharge_cols)

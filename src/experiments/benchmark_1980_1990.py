@@ -90,7 +90,10 @@ def run_ordered_missforest_chaining(df_full_gapped, seed_start, seed_end, window
         
         print(f"    Training new model on: {prev_start.date()} to {prev_end.date()}")
         new_model = create_model()
-        new_model.fit(df_prev_imputed)
+        # Fit on the gapped block, not the imputed one: transform() returns a
+        # NaN-free frame, so fit() would treat every cell as a known target and
+        # train the next model on this model's own predictions.
+        new_model.fit(df_prev_gapped)
         current_training_model = new_model
         current_start = prev_start
 
@@ -110,7 +113,10 @@ def run_ordered_missforest_chaining(df_full_gapped, seed_start, seed_end, window
 
         print(f"    Training new model on: {next_start.date()} to {next_end.date()}")
         new_model = create_model()
-        new_model.fit(df_next_imputed)
+        # Fit on the gapped block, not the imputed one: transform() returns a
+        # NaN-free frame, so fit() would treat every cell as a known target and
+        # train the next model on this model's own predictions.
+        new_model.fit(df_next_gapped)
         current_training_model = new_model
         current_end = next_end
             

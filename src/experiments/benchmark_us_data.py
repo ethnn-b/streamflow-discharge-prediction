@@ -202,7 +202,10 @@ def run_experiment():
                 initialization_method='historical_mean',
                 ordering_method='none'
             )
-            new_model.fit(df_block_imputed)
+            # Fit on the gapped block, not the imputed one: transform() returns a
+            # NaN-free frame, so fit() would treat every cell as a known target and
+            # train the next model on this model's own predictions.
+            new_model.fit(df_block_gapped)
             current_model = new_model
             
         metrics, _, _ = evaluate_imputation_performance(df_block_original, df_block_gapped, df_block_imputed, discharge_cols)

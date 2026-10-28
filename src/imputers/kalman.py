@@ -35,6 +35,22 @@ def kalman_imputation(df_seed_gapped, df_eval_gapped, discharge_cols):
             )
             res = model.fit(disp=False)
             imputed_series = res.predict(start=df_combined_gapped.index[0], end=df_combined_gapped.index[-1])
+
+            # enforce_stationarity=False lets the fit return finite but explosive
+            # coefficients, so predict() can emit values of order 1e37 without
+            # raising anything the except branch would catch.
+            # shortcut: a fixed 1e3x multiple of the observed maximum, loose enough
+            # never to reject a usable fit; revisit if a gauge legitimately needs it.
+            observed_max = df_combined_gapped[col].abs().max()
+            diverged = not np.isfinite(imputed_series).all() or (
+                pd.notna(observed_max) and observed_max > 0
+                and np.nanmax(np.abs(imputed_series)) > 1e3 * observed_max)
+            if diverged:
+                raise ValueError(
+                    f"SARIMAX diverged: |prediction| up to "
+                    f"{np.nanmax(np.abs(imputed_series)):.3g} against an observed "
+                    f"maximum of {observed_max:.3g}")
+
             df_imputed[col] = df_imputed[col].fillna(imputed_series)
 
         except Exception as e:

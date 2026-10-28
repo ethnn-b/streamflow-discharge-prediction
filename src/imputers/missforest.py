@@ -13,7 +13,8 @@ class MissForestImputer:
     def __init__(self, distance_matrix=None, connectivity=None, max_iter=10, n_estimators=100,
                  random_state=42, distance_weighting_type='inverse', decay_rate=0.1,
                  temporal_feature_columns=None, initialization_method='column_mean',
-                 ordering_method='none'):
+                 ordering_method='none', use_temporal_lags=True, use_routing=True,
+                 celerity_km_per_day=100.0):
         self.vanilla_mode = (distance_matrix is None or connectivity is None or (distance_matrix.empty and connectivity.empty))
         self.distance_matrix = distance_matrix if distance_matrix is not None else pd.DataFrame()
         self.connectivity = connectivity if connectivity is not None else pd.DataFrame()
@@ -27,9 +28,18 @@ class MissForestImputer:
         self.initialization_method = initialization_method
         self.ordering_method = ordering_method
         
+        self.use_temporal_lags = use_temporal_lags
+        self.use_routing = use_routing
+        self.celerity_km_per_day = celerity_km_per_day
+
         self.models = {}
         self.col_means = {}
         self.discharge_columns = None
+        # Which cells were missing in the frame being imputed. Set by fit/transform;
+        # the lag features need it to report how far each row sits from real data.
+        # Knowing WHERE gaps are is not leakage - that is given at inference time -
+        # but the VALUES must only ever come from X.
+        self._current_missing = None
 
     def _calculate_weights(self, target_station, station_predictors):
         """Calculates blended spatial and hydrological weights for predictors."""
@@ -61,6 +71,85 @@ class MissForestImputer:
 
         return blended_weights / blended_weights.sum() if blended_weights.sum() > 0 else pd.Series(0.0, index=station_predictors)
 
+    @staticmethod
+    def _missing_run_length(gap):
+        """Per row: how many consecutive missing rows end at this one (0 if observed)."""
+        g = gap.astype(int)
+        return g.groupby((g == 0).cumsum()).cumsum()
+
+    def _lag_features(self, X, target_station):
+        """The target's own neighbours in time, plus how far this row is from real data.
+
+        Streamflow is strongly autocorrelated, so the values bracketing a gap are
+        the most informative predictors at short gaps - which is why linear
+        interpolation beats the unlagged model at 3-day gaps. Values are read from
+        X, the live iterate, never the complete series, so nothing withheld leaks in.
+        """
+        q = X[target_station]
+        feats = {'lag_prev': q.shift(1), 'lag_next': q.shift(-1)}
+        mask = self._current_missing
+        if mask is not None and target_station in mask.columns:
+            gap = mask[target_station]
+            feats['gap_dist_prev'] = self._missing_run_length(gap)
+            feats['gap_dist_next'] = self._missing_run_length(gap[::-1])[::-1]
+        return {k: v.bfill().ffill().fillna(0.0) for k, v in feats.items()}
+
+    def _routed_upstream(self, X, target_station, weights):
+        """Weighted upstream discharge lagged by travel time: sum_j w_ij * Q_j(t - tau_ij).
+
+        The one place connectivity carries information the raw columns do not
+        already hold: topology says which gauge is upstream, celerity says how long
+        its water takes to arrive, so the lag indexes a different point in time
+        rather than rescaling the same one.
+        """
+        if self.connectivity.empty or target_station not in self.connectivity.index:
+            return None
+        row = self.connectivity.loc[target_station]
+        upstream = [j for j in weights.index
+                    if j != target_station and j in row.index and row[j] > 0]
+        if not upstream:
+            return None
+        total = None
+        for j in upstream:
+            lag = 0
+            if (target_station in self.distance_matrix.index
+                    and j in self.distance_matrix.columns):
+                d = self.distance_matrix.loc[target_station, j]
+                if np.isfinite(d) and self.celerity_km_per_day > 0:
+                    lag = int(round(d / self.celerity_km_per_day))
+            term = X[j].shift(lag) * weights[j]
+            total = term if total is None else total + term
+        return total.bfill().ffill().fillna(0.0)
+
+    def _build_predictors(self, X, target_station, station_predictors):
+        """Predictor matrix for one target: the raw station discharges, a
+        weighted aggregate of them, and the temporal features.
+
+        The aggregate is what carries the physical weighting. Scaling each station
+        column by its own positive weight cannot: a tree splits one feature at a
+        time on the ordering of its values, and positive scaling preserves that
+        ordering, so the fitted trees are identical. Summing the weighted columns
+        into one feature makes the weights change values the trees can actually
+        split on.
+        """
+        predictors = X[station_predictors]
+        weights = self._calculate_weights(target_station, station_predictors)
+        if not weights.empty and weights.sum() > 0:
+            predictors = predictors.assign(
+                weighted_upstream_discharge=predictors.mul(weights, axis=1).sum(axis=1)
+            )
+            if self.use_routing:
+                routed = self._routed_upstream(X, target_station, weights)
+                if routed is not None:
+                    predictors = predictors.assign(routed_upstream_discharge=routed)
+        # Vanilla mode must stay conventional MissForest: no engineered features at
+        # all, or the Table 4 ablation baseline silently gains the lags too.
+        if self.use_temporal_lags and not self.vanilla_mode:
+            predictors = predictors.assign(**self._lag_features(X, target_station))
+        if len(self.temporal_feature_columns) > 0:
+            predictors = pd.concat([predictors, X[self.temporal_feature_columns]], axis=1)
+        return predictors
+
     def fit(self, X_incomplete):
         X = X_incomplete.copy()
         base_discharge_cols = [col for col in X.columns if col not in self.temporal_feature_columns]
@@ -77,6 +166,7 @@ class MissForestImputer:
             self.discharge_columns = base_discharge_cols
 
         original_missing_mask = X_incomplete[self.discharge_columns].isna()
+        self._current_missing = original_missing_mask
 
         # Initialization
         for col in self.discharge_columns:
@@ -103,14 +193,7 @@ class MissForestImputer:
                     continue
 
                 station_predictors = [c for c in self.discharge_columns if c != col_name]
-                weights_for_stations = self._calculate_weights(col_name, station_predictors)
-
-                if not weights_for_stations.empty:
-                    X_predictors_stations = X[station_predictors].multiply(weights_for_stations, axis=1)
-                else:
-                    X_predictors_stations = X[station_predictors]
-
-                X_predictors_combined = pd.concat([X_predictors_stations, X[self.temporal_feature_columns]], axis=1) if len(self.temporal_feature_columns) > 0 else X_predictors_stations
+                X_predictors_combined = self._build_predictors(X, col_name, station_predictors)
                 
                 X_train_for_model = X_predictors_combined.loc[y_known.index]
                 if X_train_for_model.empty or (X_train_for_model == 0).all().all():
@@ -146,6 +229,7 @@ class MissForestImputer:
             return X_imp
 
         missing_mask_new_data = X_incomplete[self.discharge_columns].isna()
+        self._current_missing = missing_mask_new_data
         if not missing_mask_new_data.sum().sum():
             return X_imp
 
@@ -173,14 +257,7 @@ class MissForestImputer:
                     continue
 
                 station_predictors = [c for c in self.discharge_columns if c != col_name]
-                weights_for_stations = self._calculate_weights(col_name, station_predictors)
-
-                if not weights_for_stations.empty:
-                    X_predictors_stations = X_imp[station_predictors].multiply(weights_for_stations, axis=1)
-                else:
-                    X_predictors_stations = X_imp[station_predictors]
-
-                X_predictors_combined = pd.concat([X_predictors_stations, X_imp[self.temporal_feature_columns]], axis=1) if len(self.temporal_feature_columns) > 0 else X_predictors_stations
+                X_predictors_combined = self._build_predictors(X_imp, col_name, station_predictors)
                 X_predict_for_model = X_predictors_combined.loc[missing_in_col]
 
                 if not X_predict_for_model.empty and not (X_predict_for_model == 0).all().all():
