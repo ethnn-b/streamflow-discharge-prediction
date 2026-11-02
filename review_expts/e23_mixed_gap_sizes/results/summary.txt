@@ -3,65 +3,65 @@ gap-run length summary: {'count': 26.0, 'mean': 135.0, 'std': 41.0, 'min': 79.0,
 
 #### ALL GAP SIZES TOGETHER  (n=7936)
 pooled RMSE per seed
-      vanilla   pimf  pimfA
-seed                       
-1       190.0  177.1  179.0
-42      249.7  243.8  239.2
+      vanilla   pimf  pimf_old
+seed                          
+1       190.0  179.0     177.1
+42      249.7  239.2     243.8
 pooled PBIAS % per seed
-      vanilla  pimf  pimfA
-seed                      
-1        -0.2  10.4    0.8
-42        2.2  13.8    2.7
-per station-seed: {'pimf beats vanilla': '27% of 26, p=0.012', 'pimfA beats vanilla': '65% of 26, p=0.208', 'pimfA beats pimf': '69% of 26, p=0.006'} | median RMSE/sd {'vanilla': 0.453, 'pimf': 0.508, 'pimfA': 0.443}
+      vanilla  pimf  pimf_old
+seed                         
+1        -0.2   0.8      10.4
+42        2.2   2.7      13.8
+per station-seed: {'pimf beats vanilla': '65% of 26, p=0.208', 'pimf_old beats vanilla': '27% of 26, p=0.012', 'pimf beats pimf_old': '69% of 26, p=0.006'} | median RMSE/sd {'vanilla': 0.453, 'pimf': 0.443, 'pimf_old': 0.508}
 
 #### GAP SIZE 2-7 d  (n=66)
 pooled RMSE per seed
-      vanilla   pimf  pimfA
-seed                       
-1       879.7  857.7  859.4
-42       44.1   54.9   52.7
+      vanilla   pimf  pimf_old
+seed                          
+1       879.7  859.4     857.7
+42       44.1   52.7      54.9
 pooled PBIAS % per seed
-      vanilla  pimf  pimfA
-seed                      
-1        -1.2  -2.5   -0.5
-42        4.4  23.7    2.7
-per station-seed: {'pimf beats vanilla': '57% of 7, p=1.000', 'pimfA beats vanilla': '57% of 7, p=0.688', 'pimfA beats pimf': '43% of 7, p=0.938'} | median RMSE/sd {'vanilla': 0.257, 'pimf': 0.268, 'pimfA': 0.292}
+      vanilla  pimf  pimf_old
+seed                         
+1        -1.2  -0.5      -2.5
+42        4.4   2.7      23.7
+per station-seed: {'pimf beats vanilla': '57% of 7, p=0.688', 'pimf_old beats vanilla': '57% of 7, p=1.000', 'pimf beats pimf_old': '43% of 7, p=0.938'} | median RMSE/sd {'vanilla': 0.257, 'pimf': 0.292, 'pimf_old': 0.268}
 
 #### GAP SIZE 8-30 d  (n=551)
 pooled RMSE per seed
-      vanilla   pimf  pimfA
-seed                       
-1       107.9  146.8  167.9
-42      172.4  177.9  158.4
+      vanilla   pimf  pimf_old
+seed                          
+1       107.9  167.9     146.8
+42      172.4  158.4     177.9
 pooled PBIAS % per seed
-      vanilla  pimf  pimfA
-seed                      
-1        11.7  35.2   26.2
-42        0.5   5.1    0.2
-per station-seed: {'pimf beats vanilla': '41% of 17, p=0.459', 'pimfA beats vanilla': '65% of 17, p=0.071', 'pimfA beats pimf': '71% of 17, p=0.064'} | median RMSE/sd {'vanilla': 0.042, 'pimf': 0.053, 'pimfA': 0.032}
+      vanilla  pimf  pimf_old
+seed                         
+1        11.7  26.2      35.2
+42        0.5   0.2       5.1
+per station-seed: {'pimf beats vanilla': '65% of 17, p=0.071', 'pimf_old beats vanilla': '41% of 17, p=0.459', 'pimf beats pimf_old': '71% of 17, p=0.064'} | median RMSE/sd {'vanilla': 0.042, 'pimf': 0.032, 'pimf_old': 0.053}
 
 #### GAP SIZE 31-100 d  (n=3242)
 pooled RMSE per seed
-      vanilla   pimf  pimfA
-seed                       
-1       198.3  167.7  167.8
-42      248.2  240.6  235.2
+      vanilla   pimf  pimf_old
+seed                          
+1       198.3  167.8     167.7
+42      248.2  235.2     240.6
 pooled PBIAS % per seed
-      vanilla  pimf  pimfA
-seed                      
-1         1.0  10.4    2.3
-42        5.4  21.9    3.6
-per station-seed: {'pimf beats vanilla': '58% of 19, p=1.000', 'pimfA beats vanilla': '95% of 19, p=0.000', 'pimfA beats pimf': '63% of 19, p=0.087'} | median RMSE/sd {'vanilla': 0.532, 'pimf': 0.522, 'pimfA': 0.519}
+      vanilla  pimf  pimf_old
+seed                         
+1         1.0   2.3      10.4
+42        5.4   3.6      21.9
+per station-seed: {'pimf beats vanilla': '95% of 19, p=0.000', 'pimf_old beats vanilla': '58% of 19, p=1.000', 'pimf beats pimf_old': '63% of 19, p=0.087'} | median RMSE/sd {'vanilla': 0.532, 'pimf': 0.519, 'pimf_old': 0.522}
 
 #### GAP SIZE >100 d  (n=4077)
 pooled RMSE per seed
-      vanilla   pimf  pimfA
-seed                       
-1       164.1  163.9  165.1
-42      261.0  255.1  252.0
+      vanilla   pimf  pimf_old
+seed                          
+1       164.1  165.1     163.9
+42      261.0  252.0     255.1
 pooled PBIAS % per seed
-      vanilla  pimf  pimfA
-seed                      
-1        -4.7  10.4   -6.4
-42        1.0  11.3    2.6
-per station-seed: {'pimf beats vanilla': '21% of 19, p=0.000', 'pimfA beats vanilla': '58% of 19, p=0.374', 'pimfA beats pimf': '74% of 19, p=0.004'} | median RMSE/sd {'vanilla': 0.331, 'pimf': 0.374, 'pimfA': 0.396}
+      vanilla  pimf  pimf_old
+seed                         
+1        -4.7  -6.4      10.4
+42        1.0   2.6      11.3
+per station-seed: {'pimf beats vanilla': '58% of 19, p=0.374', 'pimf_old beats vanilla': '21% of 19, p=0.000', 'pimf beats pimf_old': '74% of 19, p=0.004'} | median RMSE/sd {'vanilla': 0.331, 'pimf': 0.396, 'pimf_old': 0.374}

@@ -4,6 +4,7 @@ Diagnosis of the v6 Table 2 result (PIMF 323.9 vs vanilla 293.0 RMSE at 100-day 
 Paper protocol: 22 Mahanadi gauges, 1980-1990, 3-year seed block held out, 10% gaps, seeds 42/1/2, 30 and 100 days.
 
 Arms: `vanilla`, `pimf`, `pimfL` (no N), `pimf_warm` (PIMF initialised from vanilla's output, a probe only).
+Here `pimf` is the v5/v6 paper's PIMF, now `n_features='neighbour_day'` (`pimf_old` elsewhere). This diagnosis is what led to the final PIMF in e22.
 
 ## Run
 Needs the PIMF code with routing and neighbour-day features (branch `review/rerun-vs-vanilla` or `new-pimf`); `--root` points at a checkout of it.

@@ -3,18 +3,33 @@ import numpy as np
 from sklearn.ensemble import RandomForestRegressor
 from src.imputers.baselines import initialize_for_missforest
 
+# Distance reported when a row has no observation on one side (a gap at the record edge).
+# Only its ordering matters to the trees: it just has to exceed every real distance.
+NO_OBSERVATION_DISTANCE = 10_000
+
+
 class MissForestImputer:
     """
     Unified MissForest that handles:
     1. Vanilla MissForest (no distance/connectivity, simple mean initialization, no ordering)
-    2. Custom MissForest (temporal features, distance/connectivity weighting)
+    2. PIMF (routing, weighted basin aggregate, target-station temporal features, seasonality)
     3. Ordered MissForest (station imputation order based on missingness)
+
+    n_features chooses the target station's temporal features (N):
+    'nearest_observed' (PIMF, default) - the last and next *observed* value and the
+        distance to each, read from the observed record, so nothing the model
+        estimates is fed back to it;
+    'neighbour_day' (legacy, the v5/v6 paper's PIMF) - the day before and after read
+        from the live iterate, which inside long gaps feeds the model its own
+        estimates and drifts upward. Kept to reproduce earlier results.
     """
     def __init__(self, distance_matrix=None, connectivity=None, max_iter=10, n_estimators=100,
                  random_state=42, distance_weighting_type='inverse', decay_rate=0.1,
                  temporal_feature_columns=None, initialization_method='column_mean',
                  ordering_method='none', use_temporal_lags=True, use_routing=True,
-                 celerity_km_per_day=100.0):
+                 celerity_km_per_day=100.0, n_features='nearest_observed'):
+        if n_features not in ('nearest_observed', 'neighbour_day'):
+            raise ValueError(f"n_features must be 'nearest_observed' or 'neighbour_day', not {n_features!r}")
         self.vanilla_mode = (distance_matrix is None or connectivity is None or (distance_matrix.empty and connectivity.empty))
         self.distance_matrix = distance_matrix if distance_matrix is not None else pd.DataFrame()
         self.connectivity = connectivity if connectivity is not None else pd.DataFrame()
@@ -31,6 +46,7 @@ class MissForestImputer:
         self.use_temporal_lags = use_temporal_lags
         self.use_routing = use_routing
         self.celerity_km_per_day = celerity_km_per_day
+        self.n_features = n_features
 
         self.models = {}
         self.col_means = {}
@@ -40,6 +56,10 @@ class MissForestImputer:
         # Knowing WHERE gaps are is not leakage - that is given at inference time -
         # but the VALUES must only ever come from X.
         self._current_missing = None
+        # The gapped frame being imputed, and the nearest-observed features built
+        # from it (one frame per station). Both are reset by fit and transform.
+        self._observed = None
+        self._nearest_cache = {}
 
     def _calculate_weights(self, target_station, station_predictors):
         """Calculates blended spatial and hydrological weights for predictors."""
@@ -78,12 +98,66 @@ class MissForestImputer:
         return g.groupby((g == 0).cumsum()).cumsum()
 
     def _lag_features(self, X, target_station):
-        """The target's own neighbours in time, plus how far this row is from real data.
+        if self.n_features == 'neighbour_day':
+            return self._neighbour_day_features(X, target_station)
+        return dict(self._nearest_observed_features(target_station).items())
 
-        Streamflow is strongly autocorrelated, so the values bracketing a gap are
-        the most informative predictors at short gaps - which is why linear
-        interpolation beats the unlagged model at 3-day gaps. Values are read from
-        X, the live iterate, never the complete series, so nothing withheld leaks in.
+    def _nearest_observed_features(self, target_station):
+        """The last and next observed value of the target, and the days to each.
+
+        Values come from the observed record, never from the iterate, so the model's
+        estimates are not fed back to it and nothing drifts over the sweeps.
+
+        A missing row gets its real nearest observations. An observed (training) row
+        would always have them one day away, so the model would never learn what a
+        distant observation is worth; each one is instead given a pretend gap, its
+        (days before, days after) drawn from the station's own missing cells, and
+        reads the observations at or beyond those distances. Training rows thus see
+        the distances of the rows to be imputed. A side with no observation at all
+        copies the other side's value and reports NO_OBSERVATION_DISTANCE.
+        """
+        if target_station in self._nearest_cache:
+            return self._nearest_cache[target_station]
+        q = self._observed[target_station].to_numpy(float)
+        miss = np.isnan(q)
+        n = len(q)
+        idx = np.arange(n)
+        last = np.maximum.accumulate(np.where(~miss, idx, -1))            # last observation at or before k
+        nxt = np.minimum.accumulate(np.where(~miss, idx, n)[::-1])[::-1]  # first observation at or after k
+        run_before = self._missing_run_length(pd.Series(miss)).to_numpy()
+        run_after = self._missing_run_length(pd.Series(miss[::-1])).to_numpy()[::-1]
+        pairs = np.c_[run_before[miss], run_after[miss]]
+        seed = None if self.random_state is None else [self.random_state, sum(map(ord, target_station))]
+        rng = np.random.default_rng(seed)
+        lo, hi = last.copy(), nxt.copy()
+        if pairs.size:
+            o = ~miss
+            d = pairs[rng.integers(len(pairs), size=o.sum())]
+            lo[o] = last[np.clip(idx[o] - d[:, 0], 0, n - 1)]
+            lo[o] = np.where(idx[o] - d[:, 0] < 0, -1, lo[o])
+            hi[o] = nxt[np.clip(idx[o] + d[:, 1], 0, n - 1)]
+            hi[o] = np.where(idx[o] + d[:, 1] > n - 1, n, hi[o])
+        else:  # nothing missing: the nearest observations are the neighbouring days
+            lo = np.r_[-1, last[:-1]]
+            hi = np.r_[nxt[1:], n]
+        has_lo, has_hi = lo >= 0, hi < n
+        a_lo = np.where(has_lo, q[np.clip(lo, 0, n - 1)], np.nan)
+        a_hi = np.where(has_hi, q[np.clip(hi, 0, n - 1)], np.nan)
+        a_lo = np.where(has_lo, a_lo, a_hi)
+        a_hi = np.where(has_hi, a_hi, a_lo)
+        feats = pd.DataFrame({'anchor_prev': a_lo, 'anchor_next': a_hi,
+                              'dist_prev': np.where(has_lo, idx - lo, NO_OBSERVATION_DISTANCE),
+                              'dist_next': np.where(has_hi, hi - idx, NO_OBSERVATION_DISTANCE)},
+                             index=self._observed.index)
+        self._nearest_cache[target_station] = feats.fillna(np.nanmean(q) if (~miss).any() else 0.0)
+        return self._nearest_cache[target_station]
+
+    def _neighbour_day_features(self, X, target_station):
+        """Legacy N: the target's own neighbours in time, plus how far this row is from real data.
+
+        Values are read from X, the live iterate, never the complete series, so nothing
+        withheld leaks in; but inside a gap the neighbours are the model's own
+        estimates, and the gap distances are always 0 on the (observed) training rows.
         """
         q = X[target_station]
         feats = {'lag_prev': q.shift(1), 'lag_next': q.shift(-1)}
@@ -151,6 +225,7 @@ class MissForestImputer:
         return predictors
 
     def fit(self, X_incomplete):
+        self._observed, self._nearest_cache = X_incomplete, {}
         X = X_incomplete.copy()
         base_discharge_cols = [col for col in X.columns if col not in self.temporal_feature_columns]
 
@@ -219,6 +294,7 @@ class MissForestImputer:
         return self
 
     def transform(self, X_incomplete):
+        self._observed, self._nearest_cache = X_incomplete, {}
         X_imp = X_incomplete.copy()
 
         if self.discharge_columns is None:

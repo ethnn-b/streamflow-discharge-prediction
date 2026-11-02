@@ -58,7 +58,8 @@ def run_ordered_missforest_chaining(df_full_gapped, seed_start, seed_end, window
             distance_weighting_type='inverse',
             temporal_feature_columns=temporal_features,
             initialization_method=initialization_method,
-            ordering_method=ordering
+            ordering_method=ordering,
+            n_features='neighbour_day'  # reproduces the v5 results
         )
 
     print(f"  Training initial model on seed: {seed_start.date()} to {seed_end.date()}")

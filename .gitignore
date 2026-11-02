@@ -29,3 +29,8 @@ review.md
 feature_sets.md
 .DS_Store
 graphify-out/
+
+# review experiments: run cache and quick-check logs (regenerable)
+review_expts/_cache/
+review_expts/quick_run.log
+review_expts/_smoke.py

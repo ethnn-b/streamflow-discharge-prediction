@@ -66,7 +66,7 @@ with quiet:
         m = MissForestImputer(distance_matrix=D, connectivity=C, max_iter=10, n_estimators=100,
                               random_state=a.seed, distance_weighting_type='inverse',
                               temporal_feature_columns=temporal, initialization_method='historical_mean',
-                              ordering_method='most_full_first', use_temporal_lags=(a.arm == 'pimf'),
+                              ordering_method='most_full_first', use_temporal_lags=(a.arm == 'pimf'), n_features='neighbour_day',
                               use_routing=True, celerity_km_per_day=a.celerity)
         m.fit(full_gap); imp = m.transform(full_gap).loc[ev_orig.index]
     elif a.arm == 'vanilla_single':

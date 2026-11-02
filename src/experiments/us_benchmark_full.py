@@ -85,7 +85,8 @@ def _make_model(distance_matrix, connectivity_matrix, temporal_features, random_
         distance_weighting_type='inverse',
         temporal_feature_columns=temporal_features,
         initialization_method='historical_mean',
-        ordering_method='none'
+        ordering_method='none',
+        n_features='neighbour_day'  # reproduces the earlier results
     )
 
 

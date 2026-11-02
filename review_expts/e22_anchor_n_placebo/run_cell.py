@@ -4,24 +4,37 @@ Network: the 16 gauges of the connectivity matrix (V1-V16; the Hirakud reservoir
 row V17 has no discharge series), read from --data, whose matrix has the
 paramanpur -> basantpur link removed. kelo and paramanpur have no data in
 1980-1990: they stay in the frame as (constant) predictor columns but are never
-fitted or scored. The seed block and the gaps are chosen on these 16 columns.
+fitted or scored.
+
+Gaps are placed anywhere in 1980-1990, so the 10% is of the whole record. With
+--seed-block the most complete 3-year window is held out ungapped instead, as in
+the paper's protocol and in the committed e22/e23 results; neither the MissForest
+arms nor the KNN/Kalman baselines need it.
 
 Arms
   vanilla        MissForest on discharge columns only (as rerun_expts vanilla_single)
-  pimf           paper PIMF: A, R, N (l+-, g+- read from the live iterate), S
+  pimf           final PIMF: A, R, N = nearest observed values and distances, S
+  pimf_old       the v5/v6 paper's PIMF: N read from the live iterate (n_features='neighbour_day')
   pimfL          PIMF without N
-  pimfA          PIMF with N replaced by anchor features (see AnchorImputer)
   pimfL_placebo  pimfL with R built from non-connected gauges (see PlaceboImputer)
+
+Pickles written before the rename call the final PIMF 'pimfA' and the old one
+'pimf'; analyse.py maps them to the new names.
 """
 import argparse, contextlib, io, os, pickle, sys, time, warnings
 
 p = argparse.ArgumentParser()
 p.add_argument('--root'); p.add_argument('--seed', type=int); p.add_argument('--gap', type=int)
-p.add_argument('--arms', default='vanilla,pimf,pimfL,pimfA,pimfL_placebo')
+p.add_argument('--arms', default='vanilla,pimf,pimf_old,pimfL,pimfL_placebo')
 p.add_argument('--njobs', type=int, default=4); p.add_argument('--out')
 p.add_argument('--data', help='folder holding the mahanadi_*.csv files')
 p.add_argument('--pattern', default='fixed', choices=['fixed', 'native'],
                help="native = review_expts E6 pattern: lengths drawn from the native gap runs (2-365 d)")
+p.add_argument('--min-completeness', type=float, default=None,
+               help='drop stations whose completeness between their first and last 1980-1990 reading '
+                    'is below this percentage: they are neither filled nor used as predictors')
+p.add_argument('--seed-block', action='store_true',
+               help='hold the most complete 3-year window out of gapping (reproduces the committed results)')
 a = p.parse_args()
 sys.path.insert(0, a.root); os.chdir(a.root)
 
@@ -36,67 +49,6 @@ from src.utils.spatial import build_distance_matrix, build_connectivity_matrix
 
 # n_jobs does not change a fitted forest, only how it is computed.
 mfmod.RandomForestRegressor = lambda **k: RandomForestRegressor(**{**k, 'n_jobs': a.njobs})
-
-NO_DIST = 10_000  # distance sentinel when there is no observation on one side
-
-
-class AnchorImputer(MissForestImputer):
-    """N as anchors: the last and next *observed* value of the target and the
-    distance in days to each. Values come from the observed record only, never
-    from the iterate, so there is no feedback loop and no reach limit.
-
-    At a missing row the anchors are the real ones. An observed (training) row is
-    given a synthetic gap: (d-, d+) is drawn from the empirical (gap-run-length
-    before, after) pairs of that station's missing cells, i.e. from the
-    missingness pattern being imputed, and the anchors are the last observation at
-    or before t - d- and the first at or after t + d+. Training rows thus see the
-    same distribution of distances as the rows to be imputed.
-    """
-    _cache = None
-
-    def fit(self, X_incomplete):
-        self._obs, self._cache = X_incomplete, {}
-        return super().fit(X_incomplete)
-
-    def transform(self, X_incomplete):
-        self._obs = X_incomplete
-        return super().transform(X_incomplete)
-
-    def _anchors(self, s):
-        if s in self._cache:
-            return self._cache[s]
-        q = self._obs[s].to_numpy(float)
-        miss = np.isnan(q)
-        n = len(q); idx = np.arange(n)
-        last = np.maximum.accumulate(np.where(~miss, idx, -1))            # last obs at or before k
-        nxt = np.minimum.accumulate(np.where(~miss, idx, n)[::-1])[::-1]  # first obs at or after k
-        gp = self._missing_run_length(pd.Series(miss)).to_numpy()
-        gn = self._missing_run_length(pd.Series(miss[::-1])).to_numpy()[::-1]
-        pairs = np.c_[gp[miss], gn[miss]]
-        rng = np.random.default_rng([self.random_state, sum(map(ord, s))])
-        lo, hi = last.copy(), nxt.copy()
-        if pairs.size:
-            o = ~miss
-            dr = pairs[rng.integers(len(pairs), size=o.sum())]
-            lo[o] = last[np.clip(idx[o] - dr[:, 0], 0, n - 1)]
-            lo[o] = np.where(idx[o] - dr[:, 0] < 0, -1, lo[o])
-            hi[o] = nxt[np.clip(idx[o] + dr[:, 1], 0, n - 1)]
-            hi[o] = np.where(idx[o] + dr[:, 1] > n - 1, n, hi[o])
-        else:  # nothing missing: anchors are the immediate neighbours
-            lo = np.r_[-1, last[:-1]]; hi = np.r_[nxt[1:], n]
-        has_lo, has_hi = lo >= 0, hi < n
-        a_lo = np.where(has_lo, q[np.clip(lo, 0, n - 1)], np.nan)
-        a_hi = np.where(has_hi, q[np.clip(hi, 0, n - 1)], np.nan)
-        a_lo = np.where(has_lo, a_lo, a_hi); a_hi = np.where(has_hi, a_hi, a_lo)
-        f = pd.DataFrame({'anchor_prev': a_lo, 'anchor_next': a_hi,
-                          'dist_prev': np.where(has_lo, idx - lo, NO_DIST),
-                          'dist_next': np.where(has_hi, hi - idx, NO_DIST)}, index=self._obs.index)
-        self._cache[s] = f.fillna(np.nanmean(q))
-        return self._cache[s]
-
-    def _lag_features(self, X, target_station):
-        return {k: v for k, v in self._anchors(target_station).items()}
-
 
 class PlaceboImputer(MissForestImputer):
     """R with the topology scrambled: each real upstream contributor j of target i
@@ -129,10 +81,19 @@ matrix_sites = set(df_contrib.station) | set(df_contrib.contributor) | {
 df = add_temporal_features(df_all).loc['1980-01-01':'1990-12-31'].copy()
 temporal = [c for c in df.columns if c.startswith(('day_of_year_', 'month_', 'week_of_year_'))]
 stations = sorted(c for c in df.columns if c not in temporal and c in matrix_sites)
+if a.min_completeness is not None:
+    def in_period_completeness(q):
+        if not q.notna().any():
+            return 0.0
+        return 100 * q.loc[q.first_valid_index():q.last_valid_index()].notna().mean()
+    stations = [s for s in stations if in_period_completeness(df[s]) >= a.min_completeness]
 df = df[stations + temporal]
-with quiet:
-    s0, s1 = find_best_data_window(df, stations, '1980-01-01', '1990-12-31', 3 * 365)
-seed_blk = df.loc[s0:s1].copy()
+if a.seed_block:
+    with quiet:
+        s0, s1 = find_best_data_window(df, stations, '1980-01-01', '1990-12-31', 3 * 365)
+    seed_blk = df.loc[s0:s1].copy()
+else:
+    seed_blk = df.iloc[:0].copy()
 ev_orig = df.loc[~df.index.isin(seed_blk.index)].copy()
 if a.pattern == 'fixed':
     with quiet:
@@ -180,12 +141,12 @@ for i in receivers:
     PlaceboImputer.placebo[i] = sub
 
 
-def pimf(cls, lags):
+def pimf(cls, lags, n_features='nearest_observed'):
     return cls(distance_matrix=D, connectivity=C, max_iter=10, n_estimators=100,
                random_state=a.seed, distance_weighting_type='inverse',
                temporal_feature_columns=temporal, initialization_method='historical_mean',
                ordering_method='most_full_first', use_temporal_lags=lags,
-               use_routing=True, celerity_km_per_day=100.0)
+               use_routing=True, celerity_km_per_day=100.0, n_features=n_features)
 
 
 res, secs = {}, {}
@@ -196,8 +157,9 @@ for arm in a.arms.split(','):
             m = MissForestImputer(distance_matrix=None, connectivity=None, random_state=a.seed)
             m.fit(full_gap[stations]); res[arm] = m.transform(full_gap[stations])
         else:
-            m = {'pimf': lambda: pimf(MissForestImputer, True), 'pimfL': lambda: pimf(MissForestImputer, False),
-                 'pimfA': lambda: pimf(AnchorImputer, True),
+            m = {'pimf': lambda: pimf(MissForestImputer, True),
+                 'pimf_old': lambda: pimf(MissForestImputer, True, 'neighbour_day'),
+                 'pimfL': lambda: pimf(MissForestImputer, False),
                  'pimfL_placebo': lambda: pimf(PlaceboImputer, False)}[arm]()
             m.fit(full_gap); res[arm] = m.transform(full_gap)
     secs[arm] = time.time() - t0

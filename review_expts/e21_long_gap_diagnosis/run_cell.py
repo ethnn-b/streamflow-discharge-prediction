@@ -57,7 +57,7 @@ def pimf(lags, init_frame=None):
     m = MissForestImputer(distance_matrix=D, connectivity=C, max_iter=10, n_estimators=100,
                           random_state=a.seed, distance_weighting_type='inverse',
                           temporal_feature_columns=temporal, initialization_method='historical_mean',
-                          ordering_method='most_full_first', use_temporal_lags=lags,
+                          ordering_method='most_full_first', use_temporal_lags=lags, n_features='neighbour_day',
                           use_routing=True, celerity_km_per_day=100.0)
     orig = mfmod.initialize_for_missforest
     if init_frame is not None:

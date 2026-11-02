@@ -181,7 +181,8 @@ def run_experiment():
                 distance_weighting_type='inverse',
                 temporal_feature_columns=temporal_features,
                 initialization_method='historical_mean',
-                ordering_method='none'
+                ordering_method='none',
+                n_features='neighbour_day'  # reproduces the earlier results
             )
             model.fit(df_block_gapped)
             current_model = model
@@ -200,7 +201,8 @@ def run_experiment():
                 distance_weighting_type='inverse',
                 temporal_feature_columns=temporal_features,
                 initialization_method='historical_mean',
-                ordering_method='none'
+                ordering_method='none',
+                n_features='neighbour_day'  # reproduces the earlier results
             )
             # Fit on the gapped block, not the imputed one: transform() returns a
             # NaN-free frame, so fit() would treat every cell as a known target and

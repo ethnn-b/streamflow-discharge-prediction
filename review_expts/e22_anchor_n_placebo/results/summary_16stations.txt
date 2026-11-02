@@ -1,103 +1,110 @@
-cells per gap: {3: 5, 7: 5, 30: 5, 100: 5}
+seeds per gap: {3: 5, 7: 5, 30: 5, 100: 5} | scored stations: 13 ['andhiyarkhore', 'bamnidhi', 'baronda', 'basantpur', 'ghatora', 'jondhra', 'kotni', 'kurubhata', 'rajim', 'rampur', 'seorinarayan', 'simga', 'sundergarh']
 
 ######## POOLED over all scored gauges
--- mean pooled RMSE over seeds
-     vanilla   pimf  pimfL  pimfA  pimfL_placebo
-gap                                             
-3      181.8  165.0  165.3  166.2          181.2
-7      179.5  162.5  164.0  161.3          171.9
-30     221.5  204.4  201.0  202.4          212.7
-100    198.7  190.2  182.1  186.0          192.6
--- paired % change vs vanilla (mean over seeds), wins, Wilcoxon p
-     pimf vs van % pimf wins  pimf p  pimfL vs van % pimfL wins  pimfL p  pimfA vs van % pimfA wins  pimfA p  pimfL_placebo vs van % pimfL_placebo wins  pimfL_placebo p
-gap                                                                                                                                                                     
-3           -9.322       5/5     NaN          -8.902        5/5      NaN          -8.444        5/5      NaN                   0.161                3/5              NaN
-7           -9.312       5/5     NaN          -8.582        5/5      NaN         -10.052        5/5      NaN                  -4.410                5/5              NaN
-30          -8.013       5/5     NaN          -9.859        5/5      NaN          -9.327        5/5      NaN                  -4.046                5/5              NaN
-100         -4.191       4/5     NaN          -9.063        5/5      NaN          -7.085        5/5      NaN                  -3.837                5/5              NaN
--- mean pooled PBIAS %
-     vanilla  pimf  pimfL  pimfA  pimfL_placebo
-gap                                            
-3        2.8   5.9    1.6    1.3            2.1
-7        3.2  11.4    2.6    2.0            2.6
-30       3.7   9.9    3.3    2.3            3.0
-100      1.1  13.4    2.5    1.6            2.7
-
-######## POOLED excluding tikarapara
--- mean pooled RMSE over seeds
-     vanilla   pimf  pimfL  pimfA  pimfL_placebo
-gap                                             
-3      181.8  165.0  165.3  166.2          181.2
-7      179.5  162.5  164.0  161.3          171.9
-30     221.5  204.4  201.0  202.4          212.7
-100    198.7  190.2  182.1  186.0          192.6
--- paired % change vs vanilla (mean over seeds), wins, Wilcoxon p
-     pimf vs van % pimf wins  pimf p  pimfL vs van % pimfL wins  pimfL p  pimfA vs van % pimfA wins  pimfA p  pimfL_placebo vs van % pimfL_placebo wins  pimfL_placebo p
-gap                                                                                                                                                                     
-3           -9.322       5/5     NaN          -8.902        5/5      NaN          -8.444        5/5      NaN                   0.161                3/5              NaN
-7           -9.312       5/5     NaN          -8.582        5/5      NaN         -10.052        5/5      NaN                  -4.410                5/5              NaN
-30          -8.013       5/5     NaN          -9.859        5/5      NaN          -9.327        5/5      NaN                  -4.046                5/5              NaN
-100         -4.191       4/5     NaN          -9.063        5/5      NaN          -7.085        5/5      NaN                  -3.837                5/5              NaN
--- mean pooled PBIAS %
-     vanilla  pimf  pimfL  pimfA  pimfL_placebo
-gap                                            
-3        2.8   5.9    1.6    1.3            2.1
-7        3.2  11.4    2.6    2.0            2.6
-30       3.7   9.9    3.3    2.3            3.0
-100      1.1  13.4    2.5    1.6            2.7
+-- pooled RMSE (cumec), mean over seeds
+     vanilla   pimf  pimf_old  pimfL  pimfL_placebo
+gap                                                
+3      181.8  166.2     165.0  165.3          181.2
+7      179.5  161.3     162.5  164.0          171.9
+30     221.5  202.4     204.4  201.0          212.7
+100    198.7  186.0     190.2  182.1          192.6
+-- pooled RMSE % change vs vanilla, mean over seeds (seeds better)
+             pimf     pimf_old        pimfL pimfL_placebo
+gap                                                      
+3     -8.4% (5/5)  -9.3% (5/5)  -8.9% (5/5)   +0.2% (3/5)
+7    -10.1% (5/5)  -9.3% (5/5)  -8.6% (5/5)   -4.4% (5/5)
+30    -9.3% (5/5)  -8.0% (5/5)  -9.9% (5/5)   -4.0% (5/5)
+100   -7.1% (5/5)  -4.2% (4/5)  -9.1% (5/5)   -3.8% (5/5)
+-- pooled PBIAS %, mean over seeds
+     vanilla  pimf  pimf_old  pimfL  pimfL_placebo
+gap                                               
+3        2.8   1.3       5.9    1.6            2.1
+7        3.2   2.0      11.4    2.6            2.6
+30       3.7   2.3       9.9    3.3            3.0
+100      1.1   1.6      13.4    2.5            2.7
 
 ######## RECEIVERS (basantpur, jondhra, rajim, seorinarayan, simga)
--- mean pooled RMSE over seeds
-     vanilla   pimf  pimfL  pimfA  pimfL_placebo
-gap                                             
-3      244.9  213.2  212.3  214.0          246.4
-7      257.6  224.9  228.1  224.1          245.6
-30     314.7  276.3  273.5  276.1          297.1
-100    278.6  259.4  249.4  254.6          268.9
--- paired % change vs vanilla (mean over seeds), wins, Wilcoxon p
-     pimf vs van % pimf wins  pimf p  pimfL vs van % pimfL wins  pimfL p  pimfA vs van % pimfA wins  pimfA p  pimfL_placebo vs van % pimfL_placebo wins  pimfL_placebo p
-gap                                                                                                                                                                     
-3          -13.310       5/5     NaN         -13.262        5/5      NaN         -12.650        5/5      NaN                   1.474                2/5              NaN
-7          -12.610       5/5     NaN         -11.369        5/5      NaN         -12.857        5/5      NaN                  -4.882                5/5              NaN
-30         -12.776       5/5     NaN         -13.685        5/5      NaN         -13.073        5/5      NaN                  -5.697                5/5              NaN
-100         -7.793       5/5     NaN         -12.508        5/5      NaN         -10.459        5/5      NaN                  -5.420                5/5              NaN
--- mean pooled PBIAS %
-     vanilla  pimf  pimfL  pimfA  pimfL_placebo
-gap                                            
-3        3.4   4.1    2.4    1.6            3.0
-7        3.4   7.9    3.1    2.4            2.9
-30       3.3   4.6    2.8    2.0            2.7
-100      1.1   7.0    2.5    1.7            2.3
+-- pooled RMSE (cumec), mean over seeds
+     vanilla   pimf  pimf_old  pimfL  pimfL_placebo
+gap                                                
+3      244.9  214.0     213.2  212.3          246.4
+7      257.6  224.1     224.9  228.1          245.6
+30     314.7  276.1     276.3  273.5          297.1
+100    278.6  254.6     259.4  249.4          268.9
+-- pooled RMSE % change vs vanilla, mean over seeds (seeds better)
+             pimf      pimf_old         pimfL pimfL_placebo
+gap                                                        
+3    -12.7% (5/5)  -13.3% (5/5)  -13.3% (5/5)   +1.5% (2/5)
+7    -12.9% (5/5)  -12.6% (5/5)  -11.4% (5/5)   -4.9% (5/5)
+30   -13.1% (5/5)  -12.8% (5/5)  -13.7% (5/5)   -5.7% (5/5)
+100  -10.5% (5/5)   -7.8% (5/5)  -12.5% (5/5)   -5.4% (5/5)
+-- pooled PBIAS %, mean over seeds
+     vanilla  pimf  pimf_old  pimfL  pimfL_placebo
+gap                                               
+3        3.4   1.6       4.1    2.4            3.0
+7        3.4   2.4       7.9    3.1            2.9
+30       3.3   2.0       4.6    2.8            2.7
+100      1.1   1.7       7.0    2.5            2.3
 
-######## PER STATION (scale-free): RMSE/sd per station x seed
--- median RMSE/sd
-     vanilla   pimf  pimfL  pimfA  pimfL_placebo
-gap                                             
-3      0.527  0.486  0.500  0.452          0.495
-7      0.433  0.438  0.442  0.410          0.424
-30     0.424  0.426  0.422  0.416          0.414
-100    0.341  0.324  0.326  0.327          0.325
--- fraction of station x seed where arm beats vanilla, and Wilcoxon p on log-ratio
-     pimf win  pimf p  pimfL win  pimfL p  pimfA win  pimfA p  pimfL_placebo win  pimfL_placebo p
-3       0.769   0.000      0.631    0.010      0.800    0.000              0.585            0.348
-7       0.538   0.654      0.646    0.014      0.708    0.000              0.692            0.006
-30      0.492   0.791      0.692    0.002      0.646    0.000              0.615            0.015
-100     0.381   0.002      0.619    0.013      0.619    0.022              0.556            0.132
--- pimfA vs pimf and pimfA vs pimfL (station x seed win fraction)
-     A beats pimf  A beats L
-gap                         
-3            0.52       0.65
-7            0.66       0.60
-30           0.72       0.55
-100          0.67       0.49
+######## STATION LEVEL (each station averaged over seeds; ratio < 1 = first arm better)
+-- pimf vs vanilla
+        ratio    won         p  p_holm
+3    0.921692  10/13  0.032715   0.065
+7    0.938002  11/13  0.003418   0.014
+30   0.927879  10/13   0.01709   0.051
+100  0.919008  10/13  0.039795   0.065
+-- pimf_old vs vanilla
+        ratio    won         p  p_holm
+3    0.922453  11/13  0.004639   0.019
+7    0.998584   6/13       1.0   1.000
+30   1.012884   6/13  0.735352   1.000
+100  1.280141   4/13  0.039795   0.119
+-- pimfL vs vanilla
+        ratio    won         p  p_holm
+3    0.952183  10/13  0.094238   0.241
+7    0.963206  10/13  0.080322   0.241
+30   0.945377   9/13  0.032715   0.131
+100   0.92624   9/13  0.109863   0.241
+-- pimfL_placebo vs vanilla
+        ratio    won         p  p_holm
+3    0.998564   8/13  0.786865   0.829
+7    0.976164  10/13  0.039795   0.159
+30   0.972375   8/13  0.167725   0.503
+100  0.963533   7/13  0.414307   0.829
+-- pimf vs pimfL (does N add anything?)
+        ratio    won         p  p_holm
+3    0.967978   9/13  0.080322   0.241
+7    0.973833  10/13  0.080322   0.241
+30   0.981491  10/13  0.032715   0.131
+100  0.992192   9/13  0.375732   0.376
+-- pimf vs pimf_old
+        ratio    won         p  p_holm
+3    0.999175   7/13  0.892578   0.893
+7    0.939332  10/13  0.006104   0.012
+30   0.916076  13/13  0.000244   0.001
+100  0.717896  12/13  0.000488   0.001
+-- median |PBIAS| % over station x seed
+     vanilla  pimf  pimf_old  pimfL  pimfL_placebo
+gap                                               
+3        6.2   6.6       8.7    7.5            6.7
+7        8.2   8.0      20.2    8.3            8.1
+30      10.3   9.5      21.5    9.6           10.7
+100     14.7  11.3      31.8   11.3           11.9
+-- case level, for reference only: share of station x seed cases beating vanilla
+     pimf  pimf_old  pimfL  pimfL_placebo
+gap                                      
+3    0.80      0.77   0.63           0.58
+7    0.71      0.54   0.65           0.69
+30   0.65      0.49   0.69           0.62
+100  0.62      0.38   0.62           0.56
 
-######## PLACEBO: real R vs placebo R (pimfL vs pimfL_placebo), per receiver, % RMSE change real vs placebo
-gap               3      7     30   100  all gaps   wins       p
-station                                                         
-basantpur    -22.37 -11.82 -10.08 -8.89    -13.29  20/20  0.0000
-jondhra      -17.09  -7.35  -7.52 -3.63     -8.90  15/20  0.0037
-rajim         -6.22   3.55  -2.19 -9.61     -3.62  14/20  0.0759
-seorinarayan -14.35  -7.82  -7.56  0.05     -8.25  12/18  0.0090
-simga          2.66  -6.96  -5.49 -2.45     -3.06  13/20  0.0637
-pooled over receivers, each cell: -7.41 p 3.518539141188786e-09
+######## PLACEBO: real R vs placebo R (pimfL vs pimfL_placebo) at the receivers
+              ratio real/placebo cells won
+station                                   
+basantpur                  0.861     20/20
+jondhra                    0.904     15/20
+rajim                      0.955     14/20
+seorinarayan               0.908     12/18
+simga                      0.967     13/20
+receivers favouring real R: 5/5, Wilcoxon over receivers p = 0.062 (n = 5: the smallest possible two-sided p is 0.062)
 placebo map: {'basantpur': [('kurubhata', 0), ('sundergarh', 0), ('kurubhata', 0), ('kurubhata', 0), ('kurubhata', 1), ('sundergarh', 1), ('sundergarh', 1), ('sundergarh', 1), ('sundergarh', 1), ('sundergarh', 1), ('sundergarh', 2)], 'jondhra': [('bamnidhi', 0), ('kurubhata', 1), ('rajim', 1), ('baronda', 1), ('sundergarh', 1)], 'rajim': [('patharidih', 0)], 'seorinarayan': [('bamnidhi', 0), ('kurubhata', 0), ('sundergarh', 1), ('kurubhata', 1), ('kurubhata', 1), ('kurubhata', 1), ('sundergarh', 1), ('sundergarh', 1), ('sundergarh', 1)], 'simga': [('andhiyarkhore', 0), ('ghatora', 1)]}

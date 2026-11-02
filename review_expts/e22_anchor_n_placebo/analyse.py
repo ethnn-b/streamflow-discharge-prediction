@@ -1,71 +1,97 @@
+"""Summarise e22/e23-style cells. Usage: python analyse.py <folder of cell_*.pkl>
+
+Statistics are station-level: each station's RMSE ratio is averaged (geometrically)
+over seeds, so a station counts once, and tests are Wilcoxon over stations with a
+Holm correction across gap lengths. Case-level (station x seed) figures are shown
+for reference only: the cases of one station are not independent.
+"""
 import glob, pickle, sys
 import numpy as np
 import pandas as pd
 from scipy.stats import wilcoxon
 
+# Pickles written before the rename: 'pimf' was the old PIMF, 'pimfA' the final one.
+LEGACY_NAMES = {'pimf': 'pimf_old', 'pimfA': 'pimf'}
+ARMS = ['vanilla', 'pimf', 'pimf_old', 'pimfL', 'pimfL_placebo']
+
 out = sys.argv[1]
-ARMS = ['vanilla', 'pimf', 'pimfL', 'pimfA', 'pimfL_placebo']
 cs = []
 for f in sorted(glob.glob(out + '/cell_*.pkl')):
     d = pickle.load(open(f, 'rb'))
-    c = d['cells'].assign(seed=d['seed'], gap=d['gap'])
-    c['sd'] = c.station.map(d['sd'])
+    c = d['cells']
+    if 'pimfA' in c:
+        c = c.rename(columns=LEGACY_NAMES)
+    c = c.assign(seed=d['seed'], gap=d['gap'])
     cs.append(c); receivers = d['receivers']; placebo = d['placebo']
 c = pd.concat(cs)
 arms = [a for a in ARMS if a in c]
 pd.set_option('display.width', 250); pd.set_option('display.max_columns', 40)
-print('cells per gap:', c.groupby('gap').seed.nunique().to_dict())
+print('seeds per gap:', c.groupby('gap').seed.nunique().to_dict(),
+      '| scored stations:', c.station.nunique(), sorted(c.station.unique()))
 
-def rmse(g, k): return np.sqrt(((g[k] - g.obs) ** 2).mean())
 
-def block(sub, title):
+def rmse(g, k):
+    return np.sqrt(((g[k] - g.obs) ** 2).mean())
+
+
+def holm(ps):
+    ps = pd.Series(ps)
+    order = ps.sort_values().index
+    adj, running = {}, 0.0
+    for i, k in enumerate(order):
+        running = max(running, min(1.0, ps[k] * (len(ps) - i)))
+        adj[k] = running
+    return pd.Series(adj)[ps.index]
+
+
+def pooled(sub, title):
     print(f'\n######## {title}')
     per = sub.groupby(['gap', 'seed']).apply(lambda g: pd.Series({k: rmse(g, k) for k in arms}))
     pb = sub.groupby(['gap', 'seed']).apply(lambda g: pd.Series({k: 100 * (g[k] - g.obs).sum() / g.obs.sum() for k in arms}))
-    rows = []
-    for gap, t in per.groupby('gap'):
-        r = {'gap': gap, 'n_seeds': len(t)}
-        for k in arms:
-            r[k] = t[k].mean()
-        for k in arms[1:]:
-            ch = 100 * (t[k] / t.vanilla - 1)
-            r[f'{k} vs van %'] = ch.mean()
-            r[f'{k} wins'] = f'{(ch < 0).sum()}/{len(ch)}'
-            r[f'{k} p'] = wilcoxon(ch).pvalue if len(ch) > 5 and (ch != 0).any() else np.nan
-        rows.append(r)
-    T = pd.DataFrame(rows).set_index('gap')
-    print('-- mean pooled RMSE over seeds'); print(T[arms].round(1))
-    print('-- paired % change vs vanilla (mean over seeds), wins, Wilcoxon p')
-    print(T[[c for c in T if ' vs van' in c or 'wins' in c or c.endswith(' p')]].round(3))
-    print('-- mean pooled PBIAS %'); print(pb.groupby('gap').mean().round(1))
+    print('-- pooled RMSE (cumec), mean over seeds'); print(per.groupby('gap').mean().round(1))
+    ch = per[arms[1:]].div(per.vanilla, axis=0).sub(1).mul(100)
+    print('-- pooled RMSE % change vs vanilla, mean over seeds (seeds better)')
+    print(ch.groupby('gap').agg(lambda x: f'{x.mean():+.1f}% ({(x < 0).sum()}/{len(x)})'))
+    print('-- pooled PBIAS %, mean over seeds'); print(pb.groupby('gap').mean().round(1))
 
-block(c, 'POOLED over all scored gauges')
-block(c[c.station != 'tikarapara'], 'POOLED excluding tikarapara')
-block(c[c.station.isin(receivers)], 'RECEIVERS (' + ', '.join(receivers) + ')')
 
-print('\n######## PER STATION (scale-free): RMSE/sd per station x seed')
-ns = c.groupby(['gap', 'seed', 'station']).apply(lambda g: pd.Series({k: rmse(g, k) / g.sd.iloc[0] for k in arms}))
-print('-- median RMSE/sd'); print(ns.groupby('gap').median().round(3))
-print('-- fraction of station x seed where arm beats vanilla, and Wilcoxon p on log-ratio')
-rows = {}
-for gap, t in ns.groupby('gap'):
-    r = {}
-    for k in arms[1:]:
-        lr = np.log(t[k] / t.vanilla)
-        r[k + ' win'] = (lr < 0).mean(); r[k + ' p'] = wilcoxon(lr).pvalue
-    rows[gap] = r
-print(pd.DataFrame(rows).T.round(3))
-print('-- pimfA vs pimf and pimfA vs pimfL (station x seed win fraction)')
-print(ns.groupby('gap').apply(lambda t: pd.Series({'A beats pimf': (t.pimfA < t.pimf).mean(),
-                                                    'A beats L': (t.pimfA < t.pimfL).mean()})).round(2))
+pooled(c, 'POOLED over all scored gauges')
+pooled(c[c.station.isin(receivers)], 'RECEIVERS (' + ', '.join(receivers) + ')')
 
-print('\n######## PLACEBO: real R vs placebo R (pimfL vs pimfL_placebo), per receiver, % RMSE change real vs placebo')
-rr = c[c.station.isin(receivers)].groupby(['gap', 'seed', 'station']).apply(
-    lambda g: 100 * (rmse(g, 'pimfL') / rmse(g, 'pimfL_placebo') - 1)).rename('d').reset_index()
-tab = rr.groupby(['station', 'gap']).d.mean().unstack().round(2)
-tab['all gaps'] = rr.groupby('station').d.mean().round(2)
-tab['wins'] = rr.groupby('station').d.apply(lambda x: f'{(x < 0).sum()}/{len(x)}')
-tab['p'] = rr.groupby('station').d.apply(lambda x: wilcoxon(x).pvalue).round(4)
-print(tab)
-print('pooled over receivers, each cell:', rr.d.mean().round(2), 'p', wilcoxon(rr.d).pvalue)
-print('placebo map:', {k: [(s, l) for s, l, _ in v] for k, v in placebo.items()})
+st = c.groupby(['gap', 'seed', 'station']).apply(lambda g: pd.Series({k: rmse(g, k) for k in arms}))
+pbs = c.groupby(['gap', 'seed', 'station']).apply(
+    lambda g: pd.Series({k: abs(100 * (g[k] - g.obs).sum() / g.obs.sum()) for k in arms}))
+
+
+def station_test(num, den, title):
+    """Per gap: geometric-mean RMSE ratio num/den over stations, stations won, Wilcoxon p, Holm p."""
+    lr = np.log(st[num] / st[den]).groupby(['gap', 'station']).mean()
+    rows = {gap: {'ratio': np.exp(t.mean()), 'won': f'{(t < 0).sum()}/{len(t)}',
+                  'p': wilcoxon(t).pvalue} for gap, t in lr.groupby('gap')}
+    T = pd.DataFrame(rows).T
+    T['p_holm'] = holm(T.p.astype(float))
+    print(f'-- {title}'); print(T.round(3))
+
+
+print('\n######## STATION LEVEL (each station averaged over seeds; ratio < 1 = first arm better)')
+for k in arms[1:]:
+    station_test(k, 'vanilla', f'{k} vs vanilla')
+if {'pimf', 'pimfL'} <= set(arms):
+    station_test('pimf', 'pimfL', 'pimf vs pimfL (does N add anything?)')
+if {'pimf', 'pimf_old'} <= set(arms):
+    station_test('pimf', 'pimf_old', 'pimf vs pimf_old')
+print('-- median |PBIAS| % over station x seed'); print(pbs.groupby('gap').median().round(1))
+print('-- case level, for reference only: share of station x seed cases beating vanilla')
+print(st.groupby('gap').apply(lambda t: pd.Series({k: (t[k] < t.vanilla).mean() for k in arms[1:]})).round(2))
+
+if 'pimfL_placebo' in arms:
+    print('\n######## PLACEBO: real R vs placebo R (pimfL vs pimfL_placebo) at the receivers')
+    rr = np.log(st.pimfL / st.pimfL_placebo).loc[st.index.get_level_values('station').isin(receivers)]
+    per_station = rr.groupby('station').mean()
+    tab = pd.DataFrame({'ratio real/placebo': np.exp(per_station),
+                        'cells won': rr.groupby('station').apply(lambda x: f'{(x < 0).sum()}/{len(x)}')})
+    print(tab.round(3))
+    print(f'receivers favouring real R: {(per_station < 0).sum()}/{len(per_station)}, '
+          f'Wilcoxon over receivers p = {wilcoxon(per_station).pvalue:.3f} '
+          f'(n = {len(per_station)}: the smallest possible two-sided p is {2 / 2 ** len(per_station):.3f})')
+    print('placebo map:', {k: [(s, l) for s, l, _ in v] for k, v in placebo.items()})
