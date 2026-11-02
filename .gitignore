@@ -11,6 +11,8 @@ us_data/*
 !us_data/us_top10_discharge_data_demo.csv
 !us_data/us_top10_station_coordinates.csv
 !us_data/us_top10_connectivity_matrix.csv
+!us_data/us23_discharge_2013_2024.csv
+!us_data/us23_station_coordinates.csv
 media/*
 *.pdf
 

@@ -40,6 +40,16 @@ class MissForestImputer:
         # Knowing WHERE gaps are is not leakage - that is given at inference time -
         # but the VALUES must only ever come from X.
         self._current_missing = None
+        # Columns with no observations at all in the frame being imputed. They are
+        # initialized to a constant and carry no information, so they must not take
+        # weight mass in the aggregate of Eq. (11) - on the Mahanadi record four
+        # gauges are empty over 1980-1990 and would otherwise absorb 15% of the
+        # weight on average, and 36% at the worst target.
+        self._dead_columns = frozenset()
+
+    def _set_missing(self, mask):
+        self._current_missing = mask
+        self._dead_columns = frozenset(mask.columns[mask.all()])
 
     def _calculate_weights(self, target_station, station_predictors):
         """Calculates blended spatial and hydrological weights for predictors."""
@@ -49,7 +59,8 @@ class MissForestImputer:
         if target_station not in self.distance_matrix.index:
             return pd.Series(0.0, index=station_predictors)
 
-        actual_predictors_dist = [p for p in station_predictors if p in self.distance_matrix.columns]
+        live_predictors = [p for p in station_predictors if p not in self._dead_columns]
+        actual_predictors_dist = [p for p in live_predictors if p in self.distance_matrix.columns]
         if not actual_predictors_dist:
             return pd.Series(0.0, index=station_predictors)
 
@@ -57,19 +68,42 @@ class MissForestImputer:
         dist_weights = 1 / (distances + 1e-9) if self.distance_weighting_type == 'inverse' else np.exp(-self.decay_rate * distances)
         dist_weights = dist_weights.fillna(0).replace([np.inf, -np.inf], 0)
 
-        actual_predictors_conn = [p for p in station_predictors if p in self.connectivity.columns]
+        actual_predictors_conn = [p for p in live_predictors if p in self.connectivity.columns]
         connectivity_weights = self.connectivity.loc[target_station, actual_predictors_conn] if target_station in self.connectivity.index and actual_predictors_conn else pd.Series(0.0, index=actual_predictors_conn)
 
-        aligned_dist_weights = dist_weights.reindex(station_predictors, fill_value=0.0)
-        aligned_connectivity = connectivity_weights.reindex(station_predictors, fill_value=0.0)
+        aligned_dist_weights = dist_weights.reindex(live_predictors, fill_value=0.0)
+        aligned_connectivity = connectivity_weights.reindex(live_predictors, fill_value=0.0)
 
-        aligned_dist_weights = aligned_dist_weights / aligned_dist_weights.sum() if aligned_dist_weights.sum() > 0 else pd.Series(0.0, index=station_predictors)
-        aligned_connectivity = aligned_connectivity / aligned_connectivity.sum() if aligned_connectivity.sum() > 0 else pd.Series(0.0, index=station_predictors)
+        aligned_dist_weights = aligned_dist_weights / aligned_dist_weights.sum() if aligned_dist_weights.sum() > 0 else pd.Series(0.0, index=live_predictors)
+        aligned_connectivity = aligned_connectivity / aligned_connectivity.sum() if aligned_connectivity.sum() > 0 else pd.Series(0.0, index=live_predictors)
 
         alpha = 0.5
         blended_weights = alpha * aligned_dist_weights + (1 - alpha) * aligned_connectivity
 
-        return blended_weights / blended_weights.sum() if blended_weights.sum() > 0 else pd.Series(0.0, index=station_predictors)
+        blended_weights = blended_weights / blended_weights.sum() if blended_weights.sum() > 0 else pd.Series(0.0, index=live_predictors)
+        return blended_weights.reindex(station_predictors, fill_value=0.0)
+
+    def _mean_for(self, col, frame=None):
+        """Fallback constant for a column: training mean, else this frame's mean, else 0.
+
+        col_means[col] is NaN for a column that was entirely missing in the frame
+        passed to fit(), and dict.get(col, 0) returns that NaN rather than the
+        default, so every downstream fillna() silently left the cell missing and
+        the metrics quietly dropped it.
+
+        A station with no training data still usually has observed values in the
+        frame being imputed - they are part of the given gapped record, not of the
+        withheld truth - so prefer their mean over a bare 0, which for discharge is
+        an arbitrary penalty rather than a neutral guess.
+        """
+        m = self.col_means.get(col, np.nan)
+        if not pd.isna(m):
+            return m
+        if frame is not None and col in frame.columns:
+            m = frame[col].mean()
+            if not pd.isna(m):
+                return m
+        return 0.0
 
     @staticmethod
     def _missing_run_length(gap):
@@ -106,7 +140,8 @@ class MissForestImputer:
             return None
         row = self.connectivity.loc[target_station]
         upstream = [j for j in weights.index
-                    if j != target_station and j in row.index and row[j] > 0]
+                    if j != target_station and j in row.index and row[j] > 0
+                    and j not in self._dead_columns]
         if not upstream:
             return None
         total = None
@@ -166,7 +201,7 @@ class MissForestImputer:
             self.discharge_columns = base_discharge_cols
 
         original_missing_mask = X_incomplete[self.discharge_columns].isna()
-        self._current_missing = original_missing_mask
+        self._set_missing(original_missing_mask)
 
         # Initialization
         for col in self.discharge_columns:
@@ -175,9 +210,7 @@ class MissForestImputer:
         if self.initialization_method == 'column_mean' or self.vanilla_mode:
             print("Initializing missing values using column_mean method...")
             for col in self.discharge_columns:
-                mean_val = self.col_means.get(col, 0)
-                if pd.isna(mean_val): mean_val = 0
-                X[col] = X[col].fillna(mean_val)
+                X[col] = X[col].fillna(self._mean_for(col))
         else:
             print(f"Initializing missing values using {self.initialization_method}...")
             X = initialize_for_missforest(X_incomplete, self.discharge_columns, self.initialization_method)
@@ -225,11 +258,11 @@ class MissForestImputer:
             print("Warning: Imputer not trained. Filling with column means.")
             self.discharge_columns = [col for col in X_incomplete.columns if col not in self.temporal_feature_columns]
             for col in self.discharge_columns:
-                 X_imp[col] = X_imp[col].fillna(self.col_means.get(col, 0))
+                 X_imp[col] = X_imp[col].fillna(self._mean_for(col, X_incomplete))
             return X_imp
 
         missing_mask_new_data = X_incomplete[self.discharge_columns].isna()
-        self._current_missing = missing_mask_new_data
+        self._set_missing(missing_mask_new_data)
         if not missing_mask_new_data.sum().sum():
             return X_imp
 
@@ -237,7 +270,7 @@ class MissForestImputer:
         if self.initialization_method == 'column_mean' or self.vanilla_mode:
             print("Initializing test data using column_mean method...")
             for col in self.discharge_columns:
-                X_imp[col] = X_imp[col].fillna(self.col_means.get(col, 0))
+                X_imp[col] = X_imp[col].fillna(self._mean_for(col, X_incomplete))
         else:
             print(f"Initializing test data using {self.initialization_method}...")
             # For testing, we use the training set means for initialization where possible? 
@@ -263,7 +296,7 @@ class MissForestImputer:
                 if not X_predict_for_model.empty and not (X_predict_for_model == 0).all().all():
                     X_imp.loc[missing_in_col, col_name] = self.models[col_name].predict(X_predict_for_model)
                 else:
-                    X_imp.loc[missing_in_col, col_name] = self.col_means.get(col_name, 0)
+                    X_imp.loc[missing_in_col, col_name] = self._mean_for(col_name, X_incomplete)
 
             max_change = np.abs(X_imp[self.discharge_columns] - previous_values).max().max()
             print(f"  Maximum change: {max_change:.6f}")

@@ -73,9 +73,20 @@ def evaluate_imputation_performance(df_original, df_gapped, df_imputed, discharg
     else:
         return {'RMSE': np.nan, 'MAE': np.nan, 'R2': np.nan, 'NSE': np.nan, 'KGE': np.nan}, [], []
 
+COMBINED_US_CSV = 'us_data/us23_discharge_2013_2024.csv'
+
+
 def load_us_data():
+    """Daily mean discharge for the 23 US sites of RAW_COORDS over 2013-2024.
+
+    Prefers the per-site USGS downloads in us_data/US_Data when that directory is
+    present. It is 51 MB and not tracked, so a fresh clone falls back to
+    COMBINED_US_CSV, which is the exact frame this function builds from those
+    downloads (sentinels already masked) and is tracked so the US experiments of
+    Section 4.5 run without the bulk data.
+    """
     data_dir = 'us_data/US_Data'
-    files = [f for f in os.listdir(data_dir) if f.endswith('.csv')]
+    files = sorted(f for f in os.listdir(data_dir) if f.endswith('.csv')) if os.path.isdir(data_dir) else []
     dfs = []
     
     # Process coords
@@ -103,10 +114,28 @@ def load_us_data():
         df.columns = [site_id]
         dfs.append(df)
         
+    if not dfs:
+        if not os.path.exists(COMBINED_US_CSV):
+            raise FileNotFoundError(
+                f"Neither {data_dir}/ nor {COMBINED_US_CSV} is present; "
+                "see the US section of README.md for how to fetch the raw data.")
+        print(f"{data_dir}/ not found; reading {COMBINED_US_CSV}")
+        df_combined = pd.read_csv(COMBINED_US_CSV, index_col=0, parse_dates=True)
+        df_combined.columns = [str(c).zfill(8) for c in df_combined.columns]
+        return df_combined.mask(df_combined <= -999999), df_coords
+
     df_combined = pd.concat(dfs, axis=1)
     df_combined = df_combined.loc['2013-01-01':'2024-12-31']
     # resample to daily in case of missing days
     df_combined = df_combined.resample('D').mean()
+    # USGS writes -999999 for no-data; left as a number it is treated as a real
+    # discharge, which is what produced the KGE 0.090 US result reported in v4.
+    # Mask before anything downstream sees it. Two such cells exist at 01010000
+    # (2024-11-29/30) and nine more at 01142500, outside the 23-site list.
+    sentinels = int((df_combined <= -999999).sum().sum())
+    if sentinels:
+        print(f"Masked {sentinels} USGS no-data sentinel(s) (<= -999999).")
+    df_combined = df_combined.mask(df_combined <= -999999)
     return df_combined, df_coords
 
 def create_gaps(df, columns, gap_length=7, min_percent=10.0):
