@@ -1,0 +1,67 @@
+scored cells by gap size: {'2-7 d': 66, '8-30 d': 551, '31-100 d': 3242, '>100 d': 4077}
+gap-run length summary: {'count': 26.0, 'mean': 135.0, 'std': 41.0, 'min': 79.0, '25%': 98.0, '50%': 134.0, '75%': 165.0, 'max': 229.0}
+
+#### ALL GAP SIZES TOGETHER  (n=7936)
+pooled RMSE per seed
+      vanilla   pimf  pimfA
+seed                       
+1       190.0  177.1  179.0
+42      249.7  243.8  239.2
+pooled PBIAS % per seed
+      vanilla  pimf  pimfA
+seed                      
+1        -0.2  10.4    0.8
+42        2.2  13.8    2.7
+per station-seed: {'pimf beats vanilla': '27% of 26, p=0.012', 'pimfA beats vanilla': '65% of 26, p=0.208', 'pimfA beats pimf': '69% of 26, p=0.006'} | median RMSE/sd {'vanilla': 0.453, 'pimf': 0.508, 'pimfA': 0.443}
+
+#### GAP SIZE 2-7 d  (n=66)
+pooled RMSE per seed
+      vanilla   pimf  pimfA
+seed                       
+1       879.7  857.7  859.4
+42       44.1   54.9   52.7
+pooled PBIAS % per seed
+      vanilla  pimf  pimfA
+seed                      
+1        -1.2  -2.5   -0.5
+42        4.4  23.7    2.7
+per station-seed: {'pimf beats vanilla': '57% of 7, p=1.000', 'pimfA beats vanilla': '57% of 7, p=0.688', 'pimfA beats pimf': '43% of 7, p=0.938'} | median RMSE/sd {'vanilla': 0.257, 'pimf': 0.268, 'pimfA': 0.292}
+
+#### GAP SIZE 8-30 d  (n=551)
+pooled RMSE per seed
+      vanilla   pimf  pimfA
+seed                       
+1       107.9  146.8  167.9
+42      172.4  177.9  158.4
+pooled PBIAS % per seed
+      vanilla  pimf  pimfA
+seed                      
+1        11.7  35.2   26.2
+42        0.5   5.1    0.2
+per station-seed: {'pimf beats vanilla': '41% of 17, p=0.459', 'pimfA beats vanilla': '65% of 17, p=0.071', 'pimfA beats pimf': '71% of 17, p=0.064'} | median RMSE/sd {'vanilla': 0.042, 'pimf': 0.053, 'pimfA': 0.032}
+
+#### GAP SIZE 31-100 d  (n=3242)
+pooled RMSE per seed
+      vanilla   pimf  pimfA
+seed                       
+1       198.3  167.7  167.8
+42      248.2  240.6  235.2
+pooled PBIAS % per seed
+      vanilla  pimf  pimfA
+seed                      
+1         1.0  10.4    2.3
+42        5.4  21.9    3.6
+per station-seed: {'pimf beats vanilla': '58% of 19, p=1.000', 'pimfA beats vanilla': '95% of 19, p=0.000', 'pimfA beats pimf': '63% of 19, p=0.087'} | median RMSE/sd {'vanilla': 0.532, 'pimf': 0.522, 'pimfA': 0.519}
+
+#### GAP SIZE >100 d  (n=4077)
+pooled RMSE per seed
+      vanilla   pimf  pimfA
+seed                       
+1       164.1  163.9  165.1
+42      261.0  255.1  252.0
+pooled PBIAS % per seed
+      vanilla  pimf  pimfA
+seed                      
+1        -4.7  10.4   -6.4
+42        1.0  11.3    2.6
+per station-seed: {'pimf beats vanilla': '21% of 19, p=0.000', 'pimfA beats vanilla': '58% of 19, p=0.374', 'pimfA beats pimf': '74% of 19, p=0.004'} | median RMSE/sd {'vanilla': 0.331, 'pimf': 0.374, 'pimfA': 0.396}
