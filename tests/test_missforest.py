@@ -66,3 +66,33 @@ w2 = pm2._calculate_weights('a', ['b', 'dead'])
 assert pm2._dead_columns == frozenset(), pm2._dead_columns
 assert abs(w2.sum() - 1.0) < 1e-9 and w2['dead'] > 0, w2.to_dict()
 print('OK: dead columns carry zero weight; live weights renormalize to 1')
+
+
+# --- the {A,R,L} factorial must produce 8 distinct predictor sets ---
+Dm = pd.DataFrame([[0., 10., 20.], [10., 0., 15.], [20., 15., 0.]],
+                  index=['a', 'b', 'c'], columns=['a', 'b', 'c'])
+Cm = pd.DataFrame(0.0, index=Dm.index, columns=Dm.columns)
+Cm.loc['a', 'b'] = 1.0                      # b is upstream of a -> a is a receiver
+frame = pd.DataFrame({'a': rng.normal(10, 2, 300), 'b': rng.normal(5, 1, 300),
+                      'c': rng.normal(8, 2, 300)},
+                     index=pd.date_range('2000-01-01', periods=300))
+frame['day_of_year_sin'] = np.sin(2 * np.pi * frame.index.dayofyear / 366.0)
+frame.iloc[40:60, 0] = np.nan
+
+cols = {}
+for A in (False, True):
+    for R in (False, True):
+        for L in (False, True):
+            im = MissForestImputer(distance_matrix=Dm, connectivity=Cm, max_iter=1,
+                                   n_estimators=5, temporal_feature_columns=['day_of_year_sin'],
+                                   use_aggregate=A, use_routing=R, use_temporal_lags=L)
+            im._set_missing(frame[['a', 'b', 'c']].isna())
+            cols[(A, R, L)] = tuple(im._build_predictors(frame.fillna(0), 'a', ['b', 'c']).columns)
+
+assert len(set(cols.values())) == 8, f'only {len(set(cols.values()))} distinct arms: {cols}'
+assert 'weighted_upstream_discharge' in cols[(True, False, False)]
+assert 'routed_upstream_discharge' in cols[(False, True, False)]
+assert 'weighted_upstream_discharge' not in cols[(False, True, False)], 'R must not drag A in'
+assert 'lag_prev' in cols[(False, False, True)]
+assert cols[(False, False, False)] == ('b', 'c', 'day_of_year_sin'), cols[(False, False, False)]
+print('OK: 8 distinct {A,R,L} arms; R is independent of A')

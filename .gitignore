@@ -31,3 +31,6 @@ review.md
 feature_sets.md
 .DS_Store
 graphify-out/
+
+# Quarantined stale results pending deletion
+_stale_20261102/

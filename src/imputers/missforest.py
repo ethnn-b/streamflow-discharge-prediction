@@ -14,7 +14,7 @@ class MissForestImputer:
                  random_state=42, distance_weighting_type='inverse', decay_rate=0.1,
                  temporal_feature_columns=None, initialization_method='column_mean',
                  ordering_method='none', use_temporal_lags=True, use_routing=True,
-                 celerity_km_per_day=100.0):
+                 use_aggregate=True, celerity_km_per_day=100.0, n_jobs=-1):
         self.vanilla_mode = (distance_matrix is None or connectivity is None or (distance_matrix.empty and connectivity.empty))
         self.distance_matrix = distance_matrix if distance_matrix is not None else pd.DataFrame()
         self.connectivity = connectivity if connectivity is not None else pd.DataFrame()
@@ -28,8 +28,10 @@ class MissForestImputer:
         self.initialization_method = initialization_method
         self.ordering_method = ordering_method
         
-        self.use_temporal_lags = use_temporal_lags
-        self.use_routing = use_routing
+        self.use_temporal_lags = use_temporal_lags      # L: Eqs. (14)-(15)
+        self.use_routing = use_routing                  # R: Eq. (13)
+        self.use_aggregate = use_aggregate              # A: Eq. (11)
+        self.n_jobs = n_jobs
         self.celerity_km_per_day = celerity_km_per_day
 
         self.models = {}
@@ -170,15 +172,18 @@ class MissForestImputer:
         predictors = X[station_predictors]
         weights = self._calculate_weights(target_station, station_predictors)
         if not weights.empty and weights.sum() > 0:
-            predictors = predictors.assign(
-                weighted_upstream_discharge=predictors.mul(weights, axis=1).sum(axis=1)
-            )
+            # A and R are independent: the routed term of Eq. (13) needs the weights
+            # but not the aggregate of Eq. (11), so {R} and {R,L} are real arms.
+            if self.use_aggregate:
+                predictors = predictors.assign(
+                    weighted_upstream_discharge=predictors.mul(weights, axis=1).sum(axis=1)
+                )
             if self.use_routing:
                 routed = self._routed_upstream(X, target_station, weights)
                 if routed is not None:
                     predictors = predictors.assign(routed_upstream_discharge=routed)
         # Vanilla mode must stay conventional MissForest: no engineered features at
-        # all, or the Table 4 ablation baseline silently gains the lags too.
+        # all, or the ablation baseline silently gains the lags too.
         if self.use_temporal_lags and not self.vanilla_mode:
             predictors = predictors.assign(**self._lag_features(X, target_station))
         if len(self.temporal_feature_columns) > 0:
@@ -233,7 +238,7 @@ class MissForestImputer:
                     self.models[col_name] = None
                     continue
 
-                model = RandomForestRegressor(n_estimators=self.n_estimators, random_state=self.random_state, max_features='sqrt', n_jobs=-1)
+                model = RandomForestRegressor(n_estimators=self.n_estimators, random_state=self.random_state, max_features='sqrt', n_jobs=self.n_jobs)
                 model.fit(X_train_for_model, y_known)
                 self.models[col_name] = model
 
