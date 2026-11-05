@@ -25,8 +25,17 @@ def scale_and_impute_sklearn(imputer, df_seed_gapped, df_eval_gapped, all_cols):
          print(f"  Warning: Eval set columns still have NaNs after fill. Filling with 0.")
          df_eval_filled[eval_cols_still_na] = df_eval_filled[eval_cols_still_na].fillna(0.0)
 
+    # Fit the scaler on the OBSERVED values, not on df_seed_filled. StandardScaler
+    # ignores NaN in fit, whereas filling with the column mean first shrinks each
+    # column's variance in proportion to how much of it was filled: patharidih, 88%
+    # missing, came out with a standard deviation 2.85x too small, which inflates its
+    # z-scores by the same factor and lets the sparsest gauges dominate the neighbour
+    # distance. Columns with no observation at all are zeroed, since nanstd of an empty
+    # column is undefined; they then carry zero variance and contribute no distance.
+    df_for_scaler = df_seed.copy()
+    df_for_scaler[seed_cols_all_na] = 0.0
     scaler = StandardScaler()
-    scaler.fit(df_seed_filled)
+    scaler.fit(df_for_scaler)
 
     df_seed_scaled_values = scaler.transform(df_seed_filled)
     df_eval_scaled_values = scaler.transform(df_eval_filled)

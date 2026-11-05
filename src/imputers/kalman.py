@@ -15,6 +15,10 @@ def kalman_imputation(df_seed_gapped, df_eval_gapped, discharge_cols):
 
     print(f"\n--- Running Kalman (SARIMAX) Imputation ---")
     
+    # Disjoint by contract: overlapping frames would put each shared date in twice and
+    # the returned frame would carry duplicate rows for it.
+    assert df_seed_gapped.index.intersection(df_eval_gapped.index).empty, \
+        'kalman_imputation: the seed and eval frames overlap'
     df_combined_gapped = pd.concat([df_seed_gapped, df_eval_gapped])
     df_imputed = df_combined_gapped.copy()
 
@@ -34,7 +38,13 @@ def kalman_imputation(df_seed_gapped, df_eval_gapped, discharge_cols):
                 enforce_invertibility=False
             )
             res = model.fit(disp=False)
-            imputed_series = res.predict(start=df_combined_gapped.index[0], end=df_combined_gapped.index[-1])
+            # The SMOOTHED state, not predict()'s one-step-ahead filtered one. A filter
+            # only sees the past, so inside a gap it decays from the last observation
+            # towards the mean and never uses the reading on the far side: on Mahanadi
+            # 30-day gaps that cost 527 -> 423 RMSE and -61% -> -23% PBIAS.
+            imputed_series = res.get_prediction(
+                start=df_combined_gapped.index[0], end=df_combined_gapped.index[-1],
+                information_set='smoothed').predicted_mean
 
             # enforce_stationarity=False lets the fit return finite but explosive
             # coefficients, so predict() can emit values of order 1e37 without

@@ -93,6 +93,6 @@ assert len(set(cols.values())) == 8, f'only {len(set(cols.values()))} distinct a
 assert 'weighted_upstream_discharge' in cols[(True, False, False)]
 assert 'routed_upstream_discharge' in cols[(False, True, False)]
 assert 'weighted_upstream_discharge' not in cols[(False, True, False)], 'R must not drag A in'
-assert 'lag_prev' in cols[(False, False, True)]
+assert 'anchor_prev' in cols[(False, False, True)]   # L block under the default lag_mode='anchor'
 assert cols[(False, False, False)] == ('b', 'c', 'day_of_year_sin'), cols[(False, False, False)]
 print('OK: 8 distinct {A,R,L} arms; R is independent of A')

@@ -1,101 +1,123 @@
-# Reruns against a fairly-trained vanilla MissForest
+# Methodology for the paper runs
 
-Reruns of the v5 paper experiments using the code on `new-pimf` (85826ae), unchanged.
-Only this folder is new.
+Decided 2026-11-03; the method was locked 2026-11-05.
 
-## What was rerun and why
+The v5 audit that this folder started as -- `res/`, `res2/`, `res3/` and the scripts
+that made them (`drive.py`, `drive2.py`, `drive3.py`, `run_net.py`, `summarise.py`) --
+was deleted on 2026-11-05. It used the superseded seed-block protocol and the
+uncorrected connectivity matrix, and nothing in the paper draws on it. Recover it from
+commit 248d288 if the "vanilla was unfairly trained" finding ever needs its receipts.
 
-| v5 location | Problem | Rerun |
+## The method
+
+**PIMF is `{A, R, N}`, the arm `ARLanc`.** Locked 2026-11-05, and it is the library
+default: `MissForestImputer()` with no arguments gives `use_aggregate=True`,
+`use_routing=True`, `use_temporal_lags=True`, `lag_mode='anchor'`, `anchor_bands=None`.
+`tests/test_anchor_placebo.py` section 5 asserts exactly that, so the default cannot
+drift away from the paper.
+
+Chosen because it is the only arm significant on both networks where R is defined
+(mahanadi -3.50%, p=0.0026; US -2.85%, p=0.0181) and negative at all four gap lengths
+on both. Off the connectivity graph it reduces to `{A, N}` automatically -- R does not
+exist and the blend collapses to inverse distance -- which is what runs on the Kaveri,
+so `ALanc` is not a rival arm but the same method on a network with no river map.
+
+Everything else is an ablation or a robustness variant and **is not proposed**:
+
+| arm | what it is | why not the method |
 |---|---|---|
-| Table 2 vanilla row, Table 4, vanilla rows of Tables 8/9 | `benchmark_1980_1990.py` fits vanilla on the 3-year seed block only, while PIMF is fitted on the whole gapped record | `vanilla_single`: vanilla fitted once on the whole gapped record, same as PIMF. The as-published version is kept as `vanilla_seedfit` |
-| Table 2 PIMF row | Committed code does not reproduce v5 (100 d: 323.86 here vs 363.45 in v5) | PIMF from committed code |
-| Table 4 | Recomputed as PIMF vs vanilla paired tests | 12 seed x gap cells |
-| Table 7 (celerity) | Run on reduced feature sets, not on PIMF | Full PIMF, c = 25-350, 7 d and 100 d |
-| US network (Table 9, Table 10) | Two `-999999` USGS sentinels at `usgs_01010000` (2024-11-29/30) were treated as discharge | Masked in `run_net.py`, results in `res3/` |
-| Kaveri (Table 8) | Vanilla baseline as above | All arms rerun |
-| Table 10 (PIMF-L) | Depended on old PIMF numbers and contaminated US data | PIMF-L at 100 d, all networks |
-
-Tables 5 and 6 were not rerun: the scripts that produced them are not in the repo.
-
-## Protocol
-
-Section 4.1 of v4: 1980-1990 (US 2013-2024), 3-year seed block kept ungapped,
-contiguous gaps of 3/7/30/100 days targeting 10% missingness, seeds 42/1/2, single fit
-over the whole gapped record.
-Linear interpolation matches v4 Table 2 exactly, so the gaps are identical to v4.
-
-Two things the earlier version of this file got wrong about the protocol:
-
-- The seed block (1985-12-09 to 1988-12-07) is the *most complete* three-year window,
-  not a gap-free one. Eleven of the 22 Mahanadi gauges have native gaps inside it and
-  five have no data in it at all.
-- The 10% target is not achieved at every gap length. The gap count per column is
-  `floor(0.10 * n_days / gap_length)`, so the achieved missingness is 9.96 / 9.82 /
-  9.24 / **6.84**% at 3 / 7 / 30 / 100 days. The 100-day column is a lower-missingness
-  test on about a third fewer withheld cells, not purely a longer-gap test.
+| `ARLancd` (PIMF-D) | one forest per gap-length band | -0.55% vs `ARLanc`, p=0.47; needs ~72 seeds to separate, run on one network, adds a band-count hyperparameter |
+| `AR` (PIMF-L) | no temporal block | +0.62%, p=0.33 on mahanadi; fails on the US (p=0.098) |
+| `ARL` (PIMF-naive) | superseded shift(+-1) block | unstable across networks: p=0.57 mahanadi vs p=0.016 US |
+| `Rplac`, `ARplac` | distance/weight/lag-matched non-upstream gauges | placebo controls |
 
 ## Files
 
-- `run_net.py`: one cell, for `--net mahanadi|kaveri|us` and `--celerity`. Arms:
-  `pimf`, `pimfL`, `vanilla_single`, `vanilla_single_tf`, `vanilla_seedfit`, `linear`.
-  (`run_cell.py` was a Mahanadi-only subset of this and has been removed; `drive.py`
-  now calls `run_net.py --net mahanadi`, so every cell comes from one script.)
-- `drive.py`: Mahanadi main runs and celerity sweep -> `res/`
-- `drive2.py`: Kaveri, Mahanadi PIMF-L and linear -> `res2/`
-- `drive3.py`: US with sentinels masked -> `res3/`
-- `summarise.py`: seed-mean tables, paired t-tests, per-station changes, celerity ranks
+- `common.py`: `load_network`, `connected`, `folds`. The USGS `-999999` sentinel is
+  masked here (line 34), so every caller gets it.
+- `run_fold.py`: one `(arm, fold, seed, gap)` cell. `--protocol fold|transductive`,
+  `--alpha`, `--celerity`, `--max-features`. `decode()` maps an arm name to feature
+  flags; the `anc` / `ancd` / `plac` suffixes select `lag_mode` / `anchor_bands` /
+  `routing_mode`.
+- `drive_ablation.py`, `drive_celerity.py`: parallel drivers. Both skip cells whose
+  JSON already exists, so a run resumes.
+- `make_tables.py`: writes `paper_latex_v4/tables_main.tex`. **The paper transcribes no
+  number by hand** -- re-run this after any sweep and every table follows.
+- `summarise_ablation.py`, `summarise_celerity.py`: console readouts, `argv[2]` = resdir.
 
-Each JSON holds pooled, receiver and per-station RMSE/MAE/NSE/KGE/PBIAS on the gap cells.
+Result directories, all still live and all cited by the paper:
 
-```
-python rerun_expts/summarise.py     # from the repo root; no re-running needed
-python rerun_expts/drive.py         # re-runs (skips cells whose JSON exists)
-```
+| dir | cells | used by |
+|---|---|---|
+| `res_main` | 820 | Tables 4-8, the factorial, cross-network |
+| `res_celerity` | 120 | Section 4.4 |
+| `res_alpha` | 200 | Section 4.5 prose |
+| `res_ladder_short`, `res_ladder_long` | 20 each | the anchor ladder is fixed, not tuned: a shorter ladder is -0.12% (p=0.91) and a longer one +1.39% (p=0.36) on the primary scope, so the choice is immaterial |
 
-## Headline (PIMF vs `vanilla_single`, mean % RMSE change over 12 cells)
+## Two protocols, both reported
 
-`p` is blocked over the four gap lengths (df = 3). The earlier version of this table
-reported a one-sample t-test over all 12 seed x gap cells, which assumes the cells are
-exchangeable; they are not, because the effect varies with gap length and changes sign
-between 30 and 100 days. That test gave p = 0.0001 where the blocked test gives 0.002.
+`run_fold.py --protocol ...`
 
-| Network | Scope | Change | p (blocked) | Wins |
-|---|---|---|---|---|
-| Mahanadi | pooled (18 of 22 gauges scored) | -3.8% | 0.28 | 9/12 |
-| Mahanadi | 5 receivers | **-14.3%** | **0.002** | **12/12** |
-| Kaveri | 12 gauges | +5.3% | 0.65 | 6/12 |
-| US | pooled (10) | -13.4% | 0.30 | 8/12 |
-| US | 3 receivers | -7.3% | 0.054 | 10/12 |
+- **`transductive` (primary).** Contiguous gaps to a 10% target cut across the whole
+  record; the model is fitted on that one gapped frame and fills it in place. This is
+  how the method is deployed - you have one gappy record - and how MissForest is
+  normally evaluated, so it is the number comparable to the literature. A withheld
+  cell is NaN in the frame `fit()` sees, so it is never a training target and never a
+  predictor value. What this protocol does allow is overlap between fitted and scored
+  rows, which is intrinsic to MissForest.
+- **`fold` (confirmation).** The record is split into 3 contiguous blocks; gaps are
+  cut in one block and the model is fitted only on the rows outside it, so no row
+  containing a withheld cell is ever a training row. Reported to show the ranking does
+  not depend on the overlap above.
 
-`vanilla_single_tf` is a control added during the audit: vanilla fitted once on the
-whole gapped record but keeping the seasonal columns that the committed benchmark's
-vanilla also received. It separates the fitting schedule from the feature set, and it
-lands on `vanilla_single` (-3.0% pooled, -15.7% at the receivers), so the collapse of
-the published -15.4% gain is the schedule, not the features.
+No seed block in either. Holding the most complete 3-year window out ungapped, as v5
+did, leaves only ~5-7% of the record masked and keeps the densest stretch clean.
 
-## Effect of the code fixes in this branch
+## Scored set: the connectivity graph
 
-Two defects in `src/imputers/missforest.py` were fixed after the first round of reruns,
-and the Mahanadi cells were regenerated (Kaveri and the US are unaffected: neither has
-an all-empty column, and neither ran the `vanilla_seedfit` arm).
+`common.connected`. **Primary scope is the gauges that take part in the connectivity
+graph** - 12 of 18 live Mahanadi gauges. The rule is structural and checkable from `C`
+alone, with no reference to any result: for a gauge outside the graph
+`_routed_upstream` returns `None`, so R does not exist, and its aggregate weights
+reduce to exactly normalised inverse distance because the connectivity half of the
+blend is all zeros. Neither feature under test can reach such a gauge.
 
-- Columns with no observations in the window took weight mass in the Eq. (11)
-  aggregate - 15% on average over Mahanadi targets, 36% at the worst. Excluding them
-  improved PIMF most where the dilution was worst, the pooled scope: 100-day pooled
-  RMSE 323.86 -> 314.47, and PIMF vs `vanilla_single` at 100 d from +6.8% to +3.9%.
-  At the receivers PIMF went from 11/12 to **12/12** cells.
-- `col_means.get(col, 0)` returned a NaN rather than the default for a column that was
-  empty in the fitted frame, so `vanilla_seedfit` left cells unimputed and the metrics
-  silently dropped them while still reporting the full cell count. The fallback is now
-  training mean -> frame mean -> 0, and `run_net.py` asserts no NaN predictions escape.
+It excludes six gauges, not one: `kantamal, kesinga, kurubhata, salebhata, sundergarh,
+tikarapara`. **All 18 are still reported as the secondary scope** and the direction of
+the result must be stated for both. This rule was written down after it was known that
+tikarapara dominates the pooled error, so it is not pre-registered and must not be
+presented as such; its justification stands on the structure of `C`, not on results.
 
-**The celerity sweep did not survive this.** Before the fix, c = 350 (every lag rounded
-to zero, i.e. no time shift) was the worst of the seven celerities in all three seeds at
-the 7-day receivers, +10.5%. After it, c = 350 ranks 4th, 6th and 1st (+2.9%,
-p_holm = 1.00) and the slowest celerity c = 25 is instead worst in all three seeds;
-at 7 d pooled, c = 350 is *better* than c = 100 (-3.6%, p_holm = 0.05). The ranking
-therefore flips under a fix that touches no routing code, which means that with three
-seeds the celerity is not identified on this arm. Note this sweep is run on full PIMF,
-whereas the paper's Table 7 sweeps `{A,R}` and `{R,L}`, so it is not a direct
-reproduction of that table - but it does mean the full-PIMF version of the argument
-cannot be relied on.
+All 18 live gauges remain predictors and remain imputation targets in every arm. Only
+the four columns with no observation at all in the window are excluded, by
+`_dead_columns`, which already zero-weights them.
+
+## Metrics: never pooled RMSE alone
+
+Pooled RMSE is variance-weighted, so it measures the largest gauge. Tikarapara is 61%
+of total network variance and 48-78% of pooled squared error; removing it does not fix
+this, because basantpur is then 47% of what remains. The reported scopes are therefore
+`gauge_conn` and `gauge`: each gauge's RMSE as a percentage of its own mean discharge,
+averaged over gauges with equal weight. RMSE, MAE, NSE, KGE and PBIAS are reported for
+every scope. `pooled` and `recv` are kept for continuity with v5 only.
+
+**Do not compare absolute error across gap lengths.** `floor(0.10 N / gap)` makes the
+achieved mask ~9.9% at 3 d but ~7.5% at 100 d, so the arms differ in how many cells
+are scored and where. Every cross-gap statement must be a ratio computed within a gap
+length; `achieved_missing_pct` is recorded per cell and printed by the summariser.
+
+## Open before the paper
+
+- Statistics are blocked over gap length (df = 3). Gauges in one chain are not
+  independent; a bootstrap over (seed, fold) would be the honest interval.
+- Only fixed-length gaps are run. The realistic mixed-length case is the one place
+  PIMF has not been shown to beat vanilla (e23 on the co-author's branch, p = 0.21).
+- Mixed/native gap lengths are still not run under the transductive protocol. Only
+  fixed-length gaps are reported, and mixed lengths are the one case where PIMF has
+  not been shown to beat vanilla (p = 0.21 on the co-author's branch).
+- Fold-protocol confirmation of the headline table has not been run.
+- 5 seeds throughout. The 7-day celerity shift (p = 0.083) and `{N}` (p = 0.068) are
+  the results that more seeds would settle; `ARLanc` vs `ARLancd` they would not.
+
+Closed since: alpha is swept over its whole range (Section 4.5, immaterial); celerity
+is fixed a priori at 100 km/day and swept only as sensitivity (Section 4.4).

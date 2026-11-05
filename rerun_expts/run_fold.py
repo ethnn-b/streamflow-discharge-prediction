@@ -23,8 +23,14 @@ A R L     base plus any combination of
             A = weighted basin discharge, Eq. (11)
             R = travel-time routed upstream discharge, Eq. (13)
             L = temporal neighbour and gap-distance features, Eqs. (14)-(15)
-          so ARL is PIMF and AR is PIMF-L. Everything other than the named
-          features is identical across all eight, which is what isolates them.
+          Everything other than the named features is identical across all
+          eight, which is what isolates them.
+
+Suffixes
+--------
+anc   L rebuilt as anchors to the nearest observed reading (lag_mode='anchor').
+      ARLanc is PIMF, the method; AR is PIMF-L; ARL is the superseded naive block.
+plac  routing against a distance-, weight- and lag-matched NON-upstream set.
 """
 import argparse, json, os, sys, time, warnings, contextlib, io
 
@@ -44,34 +50,71 @@ p.add_argument('--root'); p.add_argument('--net', default='mahanadi')
 p.add_argument('--arm'); p.add_argument('--fold', type=int); p.add_argument('--seed', type=int)
 p.add_argument('--gap', type=int); p.add_argument('--n-folds', type=int, default=3)
 p.add_argument('--celerity', type=float, default=100.0); p.add_argument('--out')
+# Blend between the two weightings of Section 3.3.3: 1.0 is pure inverse distance,
+# 0.0 is pure connectivity. Reaches the aggregate and the routed term's weights only.
+p.add_argument('--alpha', type=float, default=0.5)
 # n_jobs for the forests. 1 thread per cell with many cells in parallel is far
 # better throughput than n_jobs=-1 per cell: 100 small trees scale to only ~3x
 # on 24 cores. A fixed random_state makes the forest deterministic in n_jobs.
 p.add_argument('--threads', type=int, default=1)
+p.add_argument('--max-features', default='sqrt')
+p.add_argument('--protocol', default='fold', choices=['fold', 'transductive'],
+               help='fold = fit on the rows outside the target block; transductive = one '
+                    'gapped record fitted and filled in place (--fold is then ignored)')
 a = p.parse_args()
+try:
+    MF = float(a.max_features)
+except ValueError:
+    MF = a.max_features
 
 warnings.simplefilter('ignore')
 quiet = contextlib.redirect_stdout(io.StringIO())
 
 df, stations, temporal, D, C, receivers = load_network(a.net)
-blocks = folds(df.index, a.n_folds)
-test_idx = blocks[a.fold]
-train_idx = df.index.difference(test_idx)
+if a.protocol == 'transductive':
+    # One gappy record, fitted and filled in place: the setting the method is actually
+    # deployed in, and the one MissForest is normally evaluated under. A withheld cell
+    # is NaN in the frame fit() sees, so it is never a training target and never a
+    # predictor value; what the fold protocol additionally forbids is the overlap
+    # between fitted and scored rows, which is intrinsic to MissForest.
+    test_idx = train_idx = df.index
+else:
+    test_idx = folds(df.index, a.n_folds)[a.fold]
+    train_idx = df.index.difference(test_idx)
 
 test_orig = df.loc[test_idx].copy()
 with quiet:
     test_gap = create_contiguous_segment_gaps_by_percent(
         test_orig, stations, a.gap, 10.0, random_seed=a.seed)
-full_gap = pd.concat([df.loc[train_idx], test_gap]).sort_index()
+full_gap = df.copy()
+full_gap.loc[test_idx, stations] = test_gap[stations]
 
 FACTORIAL = {'base': (0, 0, 0), 'A': (1, 0, 0), 'R': (0, 1, 0), 'L': (0, 0, 1),
              'AR': (1, 1, 0), 'AL': (1, 0, 1), 'RL': (0, 1, 1), 'ARL': (1, 1, 1)}
+
+
+def decode(arm):
+    """Factorial arm name with an optional corrected-feature suffix.
+
+    '...anc'  the L block as anchors to the nearest observed reading, trained with
+              simulated anchor distances, instead of shift(+-1) of the target's own
+              column; the published block self-feeds inside a gap and its distance
+              features are constant on every training row.
+    '...plac' the routed term built from a distance-, weight- and lag-matched set of
+              NON-upstream gauges: the control for the connectivity matrix.
+    """
+    lag_mode, routing_mode = 'naive', 'real'
+    if arm.endswith('anc'):
+        arm, lag_mode = arm[:-3], 'anchor'
+    elif arm.endswith('plac'):
+        arm, routing_mode = arm[:-4], 'placebo'
+    return (arm if arm in FACTORIAL else None), lag_mode, routing_mode
 
 t0 = time.time()
 with quiet:
     if a.arm == 'vanilla':
         m = MissForestImputer(distance_matrix=None, connectivity=None, random_state=a.seed,
-                              n_jobs=a.threads)
+                              n_jobs=a.threads, max_features=MF)
         m.fit(full_gap.loc[train_idx, stations])
         imp = m.transform(full_gap[stations]).loc[test_idx]
     elif a.arm == 'linear':
@@ -84,12 +127,17 @@ with quiet:
                                          training_data=full_gap.loc[train_idx])
     elif a.arm == 'kalman':
         from src.imputers.kalman import kalman_imputation
-        imp = kalman_imputation(full_gap.loc[train_idx], test_gap, stations)
+        # kalman_imputation concatenates its two frames, so they have to be disjoint.
+        # Under transductive the training rows ARE the target rows, so the seed frame is
+        # empty and SARIMAX is fitted on the one gapped record.
+        imp = kalman_imputation(full_gap.loc[train_idx.difference(test_idx)],
+                                test_gap, stations)
     elif a.arm == 'knn':
         from src.imputers.knn import knn_imputation
         imp = knn_imputation(full_gap.loc[train_idx], test_gap, list(full_gap.columns), k=5)
-    elif a.arm in FACTORIAL:
-        useA, useR, useL = FACTORIAL[a.arm]
+    elif decode(a.arm)[0]:
+        core, lag_mode, routing_mode = decode(a.arm)
+        useA, useR, useL = FACTORIAL[core]
         m = MissForestImputer(distance_matrix=D, connectivity=C, max_iter=10, n_estimators=100,
                               random_state=a.seed, distance_weighting_type='inverse',
                               temporal_feature_columns=temporal,
@@ -97,7 +145,9 @@ with quiet:
                               ordering_method='most_full_first',
                               use_aggregate=bool(useA), use_routing=bool(useR),
                               use_temporal_lags=bool(useL), celerity_km_per_day=a.celerity,
-                              n_jobs=a.threads)
+                              n_jobs=a.threads, max_features=MF,
+                              lag_mode=lag_mode, routing_mode=routing_mode,
+                              alpha=a.alpha)
         m.fit(full_gap.loc[train_idx])
         imp = m.transform(full_gap).loc[test_idx]
     else:
@@ -123,8 +173,9 @@ def score(cols):
 
 
 cut = (test_gap[stations].isna() & test_orig[stations].notna())
-res = dict(net=a.net, arm=a.arm, fold=a.fold, n_folds=a.n_folds, seed=a.seed, gap=a.gap,
-           celerity=a.celerity, seconds=el,
+res = dict(net=a.net, arm=a.arm, protocol=a.protocol,
+           fold=a.fold, n_folds=a.n_folds, seed=a.seed, gap=a.gap,
+           celerity=a.celerity, alpha=a.alpha, max_features=a.max_features, seconds=el,
            test_block=[str(test_idx[0].date()), str(test_idx[-1].date())],
            n_train_rows=len(train_idx), n_test_rows=len(test_idx),
            achieved_missing_pct=float(100 * cut.sum().sum() / test_orig[stations].notna().sum().sum()),

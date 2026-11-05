@@ -14,7 +14,9 @@ class MissForestImputer:
                  random_state=42, distance_weighting_type='inverse', decay_rate=0.1,
                  temporal_feature_columns=None, initialization_method='column_mean',
                  ordering_method='none', use_temporal_lags=True, use_routing=True,
-                 use_aggregate=True, celerity_km_per_day=100.0, n_jobs=-1):
+                 use_aggregate=True, celerity_km_per_day=100.0, n_jobs=-1,
+                 max_features='sqrt', lag_mode='anchor', routing_mode='real',
+                 alpha=0.5):
         self.vanilla_mode = (distance_matrix is None or connectivity is None or (distance_matrix.empty and connectivity.empty))
         self.distance_matrix = distance_matrix if distance_matrix is not None else pd.DataFrame()
         self.connectivity = connectivity if connectivity is not None else pd.DataFrame()
@@ -33,6 +35,20 @@ class MissForestImputer:
         self.use_aggregate = use_aggregate              # A: Eq. (11)
         self.n_jobs = n_jobs
         self.celerity_km_per_day = celerity_km_per_day
+        # 'sqrt' is sklearn's CLASSIFICATION default; R's missForest uses p/3 and
+        # sklearn's regressor defaults to all p. Kept as the historical default.
+        self.max_features = max_features
+        # 'anchor' is the default because it IS the method: PIMF = {A, R, N}, i.e.
+        # use_aggregate + use_routing + lag_mode='anchor'.
+        # 'naive' is the superseded published L block, shift(+-1) of the target's
+        # own column, kept only to reproduce it; see _anchor_features.
+        self.lag_mode = lag_mode
+        # 'placebo' replaces the real upstream set with a distance-matched
+        # non-upstream set; see _placebo_set.
+        self.routing_mode = routing_mode
+        if not 0.0 <= alpha <= 1.0:
+            raise ValueError(f'alpha must lie in [0, 1], not {alpha!r}')
+        self.alpha = alpha
 
         self.models = {}
         self.col_means = {}
@@ -79,8 +95,9 @@ class MissForestImputer:
         aligned_dist_weights = aligned_dist_weights / aligned_dist_weights.sum() if aligned_dist_weights.sum() > 0 else pd.Series(0.0, index=live_predictors)
         aligned_connectivity = aligned_connectivity / aligned_connectivity.sum() if aligned_connectivity.sum() > 0 else pd.Series(0.0, index=live_predictors)
 
-        alpha = 0.5
-        blended_weights = alpha * aligned_dist_weights + (1 - alpha) * aligned_connectivity
+        # alpha = 1 is pure inverse distance, alpha = 0 is pure connectivity.
+        blended_weights = (self.alpha * aligned_dist_weights
+                           + (1 - self.alpha) * aligned_connectivity)
 
         blended_weights = blended_weights / blended_weights.sum() if blended_weights.sum() > 0 else pd.Series(0.0, index=live_predictors)
         return blended_weights.reindex(station_predictors, fill_value=0.0)
@@ -130,6 +147,107 @@ class MissForestImputer:
             feats['gap_dist_next'] = self._missing_run_length(gap[::-1])[::-1]
         return {k: v.bfill().ffill().fillna(0.0) for k, v in feats.items()}
 
+    @staticmethod
+    def _last_obs_pos(obs):
+        """Position of the last observed row at or before each row (-1 if none)."""
+        idx = np.where(obs, np.arange(len(obs)), -1)
+        return np.maximum.accumulate(idx)
+
+    # Pretend gap lengths assigned to TRAINING rows. On a training row the target is
+    # observed, so the true distance to the nearest reading is 1 and the distance
+    # features are constant - the forest then scores them at exactly zero importance
+    # and never learns to lean on a far-away anchor, which is the only case it meets
+    # inside a long gap. Each training row is instead given the geometry of a real
+    # gap: a length from this log-spaced ladder and a position inside it, so that
+    # dist_prev + dist_next - 1 is that length, exactly as it is for a cell being
+    # imputed. Pairing the two sides independently would never put both distances
+    # near each other, which is every cell of a short gap. The ladder is deliberately
+    # NOT drawn from the record's own missing runs: that collapses to distance 1 at a
+    # station with no native gaps, reinstating the constant-distance failure above,
+    # and ties the training features to where the test gaps happen to be.
+    ANCHOR_TRAIN_GAPS = (1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233)
+
+    def _anchor_side(self, q, obs, depths):
+        """Value of, and distance to, the nearest observed row at least `depths` back."""
+        n = len(q)
+        pos = np.arange(n)
+        src = pos - depths
+        last = self._last_obs_pos(obs)
+        j = np.where(src >= 0, last[np.clip(src, 0, n - 1)], -1)
+        val = np.where(j >= 0, q[np.clip(j, 0, n - 1)], np.nan)
+        dist = np.where(j >= 0, (pos - j).astype(float), np.nan)
+        return val, dist
+
+    def _anchor_features(self, X, target_station, synth_gaps):
+        """Last and next genuinely observed reading of the target, and their distances.
+
+        Replaces the shift(+-1) lags of _lag_features, which inside a gap read this
+        imputer's own output from the previous round and so compound their own error.
+        An anchor is by construction an observed cell of the given record: never a
+        value this model produced, and never a withheld one.
+        """
+        q = X[target_station].values.astype(float)
+        mask = self._current_missing
+        miss = (mask[target_station].values if mask is not None
+                and target_station in mask.columns else np.zeros(len(q), bool))
+        obs = (~miss) & np.isfinite(q)
+        n = len(q)
+        if synth_gaps:
+            ladder = self.ANCHOR_TRAIN_GAPS
+            seed = (None if self.random_state is None
+                    else [self.random_state, sum(map(ord, target_station))])
+            rng = np.random.default_rng(seed)
+            L = rng.choice(ladder, n)
+            dp = rng.integers(1, L + 1)
+            dn = L + 1 - dp
+        else:
+            dp = dn = np.ones(n, dtype=int)
+        vp, sp = self._anchor_side(q, obs, dp)
+        vn, sn = self._anchor_side(q[::-1], obs[::-1], dn[::-1])
+        out = {'anchor_prev': vp, 'anchor_next': vn[::-1],
+               'anchor_dist_prev': sp, 'anchor_dist_next': sn[::-1]}
+        return {k: pd.Series(v, index=X.index).bfill().ffill().fillna(0.0)
+                for k, v in out.items()}
+
+    def _placebo_set(self, target_station, weights, upstream, lagmap):
+        """Non-upstream gauges matched to the real contributors on distance, count,
+        weight and travel-time lag.
+
+        Isolates the river map from simple proximity: if the routed term works only
+        because nearby gauges correlate with the target, a set matched on everything
+        except being upstream must score the same.
+
+        shortcut: where the non-upstream pool is smaller than the real upstream set
+        the match is partial and the weights are renormalised to the real total; the
+        matched count is returned so it can be reported.
+        """
+        D = self.distance_matrix
+        if target_station not in D.index:
+            return [], weights, lagmap
+        real = sorted(upstream, key=lambda j: D.loc[target_station, j])
+        pool = [j for j in weights.index
+                if j != target_station and j not in upstream
+                and j not in self._dead_columns and j in D.columns
+                and np.isfinite(D.loc[target_station, j])]
+        picked, used = [], set()
+        for j in real:
+            cand = [c for c in pool if c not in used]
+            if not cand:
+                break
+            c = min(cand, key=lambda c: abs(D.loc[target_station, c] - D.loc[target_station, j]))
+            used.add(c)
+            picked.append((c, j))
+        if not picked:
+            return [], weights, lagmap
+        w = pd.Series(0.0, index=weights.index, dtype=float)
+        total = float(weights[real].sum())
+        raw = np.array([float(weights[j]) for _, j in picked])
+        if raw.sum() > 0:
+            raw = raw * (total / raw.sum())
+        for (c, _), x in zip(picked, raw):
+            w[c] = x
+        return [c for c, _ in picked], w, {c: lagmap[j] for c, j in picked}
+
     def _routed_upstream(self, X, target_station, weights):
         """Weighted upstream discharge lagged by travel time: sum_j w_ij * Q_j(t - tau_ij).
 
@@ -146,7 +264,7 @@ class MissForestImputer:
                     and j not in self._dead_columns]
         if not upstream:
             return None
-        total = None
+        lagmap = {}
         for j in upstream:
             lag = 0
             if (target_station in self.distance_matrix.index
@@ -154,11 +272,19 @@ class MissForestImputer:
                 d = self.distance_matrix.loc[target_station, j]
                 if np.isfinite(d) and self.celerity_km_per_day > 0:
                     lag = int(round(d / self.celerity_km_per_day))
-            term = X[j].shift(lag) * weights[j]
+            lagmap[j] = lag
+        if self.routing_mode == 'placebo':
+            upstream, weights, lagmap = self._placebo_set(
+                target_station, weights, upstream, lagmap)
+            if not upstream:
+                return None
+        total = None
+        for j in upstream:
+            term = X[j].shift(lagmap[j]) * weights[j]
             total = term if total is None else total + term
         return total.bfill().ffill().fillna(0.0)
 
-    def _build_predictors(self, X, target_station, station_predictors):
+    def _build_predictors(self, X, target_station, station_predictors, synth_gaps=False):
         """Predictor matrix for one target: the raw station discharges, a
         weighted aggregate of them, and the temporal features.
 
@@ -185,7 +311,11 @@ class MissForestImputer:
         # Vanilla mode must stay conventional MissForest: no engineered features at
         # all, or the ablation baseline silently gains the lags too.
         if self.use_temporal_lags and not self.vanilla_mode:
-            predictors = predictors.assign(**self._lag_features(X, target_station))
+            if self.lag_mode == 'anchor':
+                predictors = predictors.assign(
+                    **self._anchor_features(X, target_station, synth_gaps))
+            else:
+                predictors = predictors.assign(**self._lag_features(X, target_station))
         if len(self.temporal_feature_columns) > 0:
             predictors = pd.concat([predictors, X[self.temporal_feature_columns]], axis=1)
         return predictors
@@ -233,12 +363,20 @@ class MissForestImputer:
                 station_predictors = [c for c in self.discharge_columns if c != col_name]
                 X_predictors_combined = self._build_predictors(X, col_name, station_predictors)
                 
-                X_train_for_model = X_predictors_combined.loc[y_known.index]
+                # The forest is trained on rows carrying simulated anchor distances and
+                # applied to rows carrying their real ones; everything else is identical.
+                train_src = X_predictors_combined
+                if (self.lag_mode == 'anchor' and self.use_temporal_lags
+                        and not self.vanilla_mode):
+                    train_src = self._build_predictors(X, col_name, station_predictors,
+                                                       synth_gaps=True)
+                X_train_for_model = train_src.loc[y_known.index]
                 if X_train_for_model.empty or (X_train_for_model == 0).all().all():
                     self.models[col_name] = None
                     continue
-
-                model = RandomForestRegressor(n_estimators=self.n_estimators, random_state=self.random_state, max_features='sqrt', n_jobs=self.n_jobs)
+                model = RandomForestRegressor(n_estimators=self.n_estimators,
+                                              random_state=self.random_state,
+                                              max_features=self.max_features, n_jobs=self.n_jobs)
                 model.fit(X_train_for_model, y_known)
                 self.models[col_name] = model
 
@@ -299,7 +437,8 @@ class MissForestImputer:
                 X_predict_for_model = X_predictors_combined.loc[missing_in_col]
 
                 if not X_predict_for_model.empty and not (X_predict_for_model == 0).all().all():
-                    X_imp.loc[missing_in_col, col_name] = self.models[col_name].predict(X_predict_for_model)
+                    X_imp.loc[missing_in_col, col_name] = \
+                        self.models[col_name].predict(X_predict_for_model)
                 else:
                     X_imp.loc[missing_in_col, col_name] = self._mean_for(col_name, X_incomplete)
 
