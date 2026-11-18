@@ -13,7 +13,7 @@ from src.imputers.missforest import MissForestImputer
 def process_and_impute(discharge_file, latlong_file, contrib_file):
     """
     Main inference function for Gradio:
-    Takes uploaded CSV file paths, processes them, runs Ordered MissForest,
+    Takes uploaded CSV file paths, processes them, runs PIMF,
     and saves the imputed dataset to a downloadable CSV.
     """
     if not discharge_file or not latlong_file:
@@ -39,17 +39,17 @@ def process_and_impute(discharge_file, latlong_file, contrib_file):
         temporal_features = [c for c in all_cols if c not in discharge_cols]
         all_stations = sorted(discharge_cols)
 
-        # 4. Build spatial matrices
+        # 4. Build spatial matrices. Without a contributor file the connectivity matrix is all
+        # zeros (not None): PIMF then reduces to {A, N, S}, the routed term R being undefined.
         distance_matrix = build_distance_matrix(df_coords, all_stations).loc[all_stations, all_stations]
-        
-        if df_contrib is not None:
-             connectivity_matrix = build_connectivity_matrix(df_contrib, all_stations, station_to_vcode).loc[all_stations, all_stations]
-        else:
-             connectivity_matrix = None
+        connectivity_matrix = build_connectivity_matrix(
+            df_contrib, all_stations, station_to_vcode).loc[all_stations, all_stations]
+        receivers = [s for s in all_stations if connectivity_matrix.loc[s].drop(s, errors='ignore').sum() > 0]
 
-        # 5. Run Ordered MissForest
-        # We process the entire uploaded dataset as one block for inference since we don't know the size
-        print("Starting Ordered MissForest imputation on uploaded data...")
+        # 5. Run PIMF = {A, R, N, S}: weighted basin discharge, travel-time routed upstream
+        # discharge, anchor features and seasonal terms, with historical-mean initialisation
+        # and most-full-first ordering. One fit on the uploaded record, filled in place.
+        print("Starting PIMF imputation on uploaded data...")
         imputer = MissForestImputer(
             distance_matrix=distance_matrix,
             connectivity=connectivity_matrix,
@@ -59,18 +59,29 @@ def process_and_impute(discharge_file, latlong_file, contrib_file):
             distance_weighting_type='inverse',
             temporal_feature_columns=temporal_features,
             initialization_method='historical_mean',
-            ordering_method='most_full_first'
+            ordering_method='most_full_first',
+            use_aggregate=True,
+            use_routing=True,
+            use_temporal_lags=True,
+            lag_mode='anchor',
+            celerity_km_per_day=100.0,
+            alpha=0.5,
+            max_features='sqrt',
         )
-        
+
         # Fit and transform
         imputer.fit(df_with_features)
-        df_imputed = imputer.transform(df_with_features)
+        df_imputed = imputer.transform(df_with_features)[all_stations]
 
         # 6. Save and return the output
         output_filename = "imputed_discharge_data.csv"
         df_imputed.to_csv(output_filename)
         
-        summary = f"Successfully imputed {len(discharge_cols)} stations across {len(df_imputed)} days."
+        n_filled = int(df_original[all_stations].isna().sum().sum())
+        routed = (f"travel-time routing active at {len(receivers)} receiver station(s)" if receivers
+                  else "no contributor matrix supplied, so routing is off and PIMF runs as {A, N, S}")
+        summary = (f"Successfully imputed {n_filled} missing values across {len(discharge_cols)} stations "
+                   f"and {len(df_imputed)} days; {routed}.")
         return output_filename, summary
 
     except Exception as e:
@@ -78,12 +89,14 @@ def process_and_impute(discharge_file, latlong_file, contrib_file):
 
 
 # Define Gradio Interface UI
-with gr.Blocks(title="Streamflow Imputation Model (Ordered MissForest)") as app:
+with gr.Blocks(title="Streamflow Imputation (PIMF)") as app:
     gr.Markdown("# 🌊 Streamflow Discharge Imputation Server")
     gr.Markdown(
         "Upload your discharge dataset with missing values, along with station coordinates and (optionally) "
-        "the river contributor matrix. The server will use an **Ordered MissForest** model enhanced with "
-        "spatial and temporal features to impute all missing data."
+        "the river contributor matrix. The server uses **PIMF (Physically Informed MissForest)**: iterative "
+        "Random Forest imputation with a weighted basin discharge, travel-time routed upstream discharge "
+        "(when a contributor matrix is given), anchor features at the nearest observed readings on either "
+        "side of each gap, and seasonal terms. Without a contributor matrix it runs without routing."
     )
     
     with gr.Row():

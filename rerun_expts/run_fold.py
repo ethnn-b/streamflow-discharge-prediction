@@ -17,6 +17,8 @@ Arms
 ----
 vanilla   conventional MissForest: discharge columns only, column-mean init, no
           ordering, no derived features. Reference point, outside the factorial.
+wcol      the base with every predictor column scaled by its weight, Eq. (10); the
+          column-weighting control of Section 3.3.4 (see check_invariance.py).
 base      MissForest with the seasonal columns, historical-mean initialization and
           most-full-first ordering, and none of A/R/L.
 A R L     base plus any combination of
@@ -48,7 +50,9 @@ from src.imputers.missforest import MissForestImputer
 p = argparse.ArgumentParser()
 p.add_argument('--root'); p.add_argument('--net', default='mahanadi')
 p.add_argument('--arm'); p.add_argument('--fold', type=int); p.add_argument('--seed', type=int)
-p.add_argument('--gap', type=int); p.add_argument('--n-folds', type=int, default=3)
+p.add_argument('--gap', type=int); p.add_argument('--pct', type=float, default=10.0)
+p.add_argument('--series', help='folder to also save the imputed and observed values of every withheld cell (npz)')
+p.add_argument('--n-folds', type=int, default=3)
 p.add_argument('--celerity', type=float, default=100.0); p.add_argument('--out')
 # Blend between the two weightings of Section 3.3.3: 1.0 is pure inverse distance,
 # 0.0 is pure connectivity. Reaches the aggregate and the routed term's weights only.
@@ -85,11 +89,11 @@ else:
 test_orig = df.loc[test_idx].copy()
 with quiet:
     test_gap = create_contiguous_segment_gaps_by_percent(
-        test_orig, stations, a.gap, 10.0, random_seed=a.seed)
+        test_orig, stations, a.gap, a.pct, random_seed=a.seed)
 full_gap = df.copy()
 full_gap.loc[test_idx, stations] = test_gap[stations]
 
-FACTORIAL = {'base': (0, 0, 0), 'A': (1, 0, 0), 'R': (0, 1, 0), 'L': (0, 0, 1),
+FACTORIAL = {'wcol': (0, 0, 0), 'base': (0, 0, 0), 'A': (1, 0, 0), 'R': (0, 1, 0), 'L': (0, 0, 1),
              'AR': (1, 1, 0), 'AL': (1, 0, 1), 'RL': (0, 1, 1), 'ARL': (1, 1, 1)}
 
 
@@ -132,6 +136,11 @@ with quiet:
         # empty and SARIMAX is fitted on the one gapped record.
         imp = kalman_imputation(full_gap.loc[train_idx.difference(test_idx)],
                                 test_gap, stations)
+    elif a.arm == 'kalmanfour':
+        from src.imputers.kalman import kalman_imputation
+        # as 'kalman' with an annual cycle added as two Fourier regressors
+        imp = kalman_imputation(full_gap.loc[train_idx.difference(test_idx)],
+                                test_gap, stations, annual_harmonics=2)
     elif a.arm == 'knn':
         from src.imputers.knn import knn_imputation
         imp = knn_imputation(full_gap.loc[train_idx], test_gap, list(full_gap.columns), k=5)
@@ -147,7 +156,7 @@ with quiet:
                               use_temporal_lags=bool(useL), celerity_km_per_day=a.celerity,
                               n_jobs=a.threads, max_features=MF,
                               lag_mode=lag_mode, routing_mode=routing_mode,
-                              alpha=a.alpha)
+                              alpha=a.alpha, weight_columns=(a.arm == 'wcol'))
         m.fit(full_gap.loc[train_idx])
         imp = m.transform(full_gap).loc[test_idx]
     else:
@@ -175,12 +184,18 @@ def score(cols):
 cut = (test_gap[stations].isna() & test_orig[stations].notna())
 res = dict(net=a.net, arm=a.arm, protocol=a.protocol,
            fold=a.fold, n_folds=a.n_folds, seed=a.seed, gap=a.gap,
-           celerity=a.celerity, alpha=a.alpha, max_features=a.max_features, seconds=el,
+           celerity=a.celerity, alpha=a.alpha, pct=a.pct, max_features=a.max_features, seconds=el,
            test_block=[str(test_idx[0].date()), str(test_idx[-1].date())],
            n_train_rows=len(train_idx), n_test_rows=len(test_idx),
            achieved_missing_pct=float(100 * cut.sum().sum() / test_orig[stations].notna().sum().sum()),
            receivers=receivers, pooled=score(stations), recv=score(receivers),
            per_station={s: score([s]) for s in stations})
+if a.series:
+    os.makedirs(a.series, exist_ok=True)
+    m_ = (test_gap[stations].isna() & test_orig[stations].notna()).values
+    np.savez_compressed(os.path.join(a.series, os.path.basename(a.out)[:-5] + '.npz'),
+                        index=test_idx.values.astype('datetime64[D]'), stations=np.array(stations),
+                        obs=test_orig[stations].values, imp=imp[stations].values, withheld=m_)
 os.makedirs(os.path.dirname(a.out), exist_ok=True)
 json.dump(res, open(a.out, 'w'), indent=1)
 print(f"{a.arm:7s} f{a.fold} s{a.seed} {a.gap:>3}d {el:4.0f}s  pooled {res['pooled']['RMSE']:8.2f}"

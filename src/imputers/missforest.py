@@ -16,7 +16,7 @@ class MissForestImputer:
                  ordering_method='none', use_temporal_lags=True, use_routing=True,
                  use_aggregate=True, celerity_km_per_day=100.0, n_jobs=-1,
                  max_features='sqrt', lag_mode='anchor', routing_mode='real',
-                 alpha=0.5):
+                 alpha=0.5, weight_columns=False):
         self.vanilla_mode = (distance_matrix is None or connectivity is None or (distance_matrix.empty and connectivity.empty))
         self.distance_matrix = distance_matrix if distance_matrix is not None else pd.DataFrame()
         self.connectivity = connectivity if connectivity is not None else pd.DataFrame()
@@ -49,6 +49,10 @@ class MissForestImputer:
         if not 0.0 <= alpha <= 1.0:
             raise ValueError(f'alpha must lie in [0, 1], not {alpha!r}')
         self.alpha = alpha
+        # Scale each predictor column by its weight w_ij (Eq. 10). Only for the
+        # invariance check of Section 3.3.4: a forest is invariant to it, so it is
+        # never part of the method.
+        self.weight_columns = weight_columns
 
         self.models = {}
         self.col_means = {}
@@ -298,6 +302,8 @@ class MissForestImputer:
         predictors = X[station_predictors]
         weights = self._calculate_weights(target_station, station_predictors)
         if not weights.empty and weights.sum() > 0:
+            if self.weight_columns:
+                predictors = predictors.mul(weights, axis=1)
             # A and R are independent: the routed term of Eq. (13) needs the weights
             # but not the aggregate of Eq. (11), so {R} and {R,L} are real arms.
             if self.use_aggregate:

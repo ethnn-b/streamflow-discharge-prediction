@@ -7,8 +7,12 @@ except ImportError:
     print("WARNING: statsmodels not found. Kalman (SARIMAX) benchmark will be skipped.")
     SARIMAX = None
 
-def kalman_imputation(df_seed_gapped, df_eval_gapped, discharge_cols):
-    """Imputes missing values using SARIMAX with a Kalman filter."""
+def kalman_imputation(df_seed_gapped, df_eval_gapped, discharge_cols, annual_harmonics=0):
+    """Imputes missing values using SARIMAX with a Kalman filter.
+
+    annual_harmonics > 0 adds that many sine/cosine pairs of period 365.25 d as exogenous
+    regressors, which gives the model an annual cycle that a seasonal period of 7 cannot.
+    """
     if SARIMAX is None:
         print("  Skipping Kalman (SARIMAX): statsmodels not installed.")
         return df_eval_gapped.copy()
@@ -21,6 +25,11 @@ def kalman_imputation(df_seed_gapped, df_eval_gapped, discharge_cols):
         'kalman_imputation: the seed and eval frames overlap'
     df_combined_gapped = pd.concat([df_seed_gapped, df_eval_gapped])
     df_imputed = df_combined_gapped.copy()
+    exog = None
+    if annual_harmonics:
+        doy = 2 * np.pi * df_combined_gapped.index.dayofyear.values / 365.25
+        exog = pd.DataFrame({f'{f}{k}': getattr(np, f)(k * doy) for k in range(1, annual_harmonics + 1)
+                             for f in ('sin', 'cos')}, index=df_combined_gapped.index)
 
     for col in discharge_cols:
         print(f"  Kalman: Processing {col}...")
@@ -31,7 +40,7 @@ def kalman_imputation(df_seed_gapped, df_eval_gapped, discharge_cols):
 
         try:
             model = SARIMAX(
-                df_combined_gapped[col],
+                df_combined_gapped[col], exog=exog,
                 order=(1, 0, 1),
                 seasonal_order=(1, 0, 1, 7),
                 enforce_stationarity=False,

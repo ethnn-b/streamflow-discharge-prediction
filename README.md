@@ -1,9 +1,9 @@
 # Streamflow Discharge Imputation (Physically Informed MissForest (PIMF))
 
-This repository contains code and data for streamflow discharge imputation using an ordered, distance-weighted MissForest framework with optional hydrological connectivity and temporal features.
+This repository contains the code, data and result files for **PIMF (Physically Informed MissForest)**, an iterative Random Forest imputer for daily streamflow records. PIMF reads river-network information through features rather than predictor weights: a weighted basin discharge (`A`), a travel-time routed upstream discharge (`R`, lag = round(distance / celerity) with a default celerity of 100 km/day), anchor features at the nearest observed readings on either side of each gap (`N`), and seasonal terms (`S`). Where no connectivity matrix is available it runs as `{A, N, S}`.
 
 The same codebase is used for:
-- research benchmarks (Mahanadi, Kaveri, and US cross-regional experiments), and
+- the experiments reported in the paper (Mahanadi, Kaveri and US networks), and
 - deployment as a Hugging Face Space via `app.py` (`SmokedChicken123/streamflow-imputer`).
 
 ## Quick Setup
@@ -25,15 +25,12 @@ Note: `requirements.txt` is a separate, pinned dependency list used only by the 
 
 ## What You Will Find
 
-- `app.py`: Gradio app for drag-and-drop CSV imputation.
+- `app.py`: Gradio app for drag-and-drop CSV imputation with PIMF (every uploaded station is imputed; routing is active at stations that have contributors in the uploaded matrix).
 - `src/imputers/missforest.py`: Physically Informed MissForest (PIMF) implementation.
 - `src/utils/`: Data loading, spatial matrices, and metrics.
-- `src/experiments/`: Benchmark scripts, grouped by study area:
-  - Mahanadi basin: `benchmark_1980_1990.py` (natural vs. ordered MissForest), `station_comparison.py` (per-station hydrographs), `contribution_ablation.py`/`contribution_ablation_sweep.py` (with/without hydrological contribution data), `gap_init_comparison.py`/`gap_init_comparison_sweep.py` (gap-initialization strategies)
-  - Kaveri basin: `kaveri_benchmark.py`, `kaveri_station_comparison.py`
-  - US cross-regional: `us_benchmark_full.py`, which imports shared helpers from `benchmark_us_data.py`. Note this script uses its own protocol (four fixed three-year blocks, 7-day gaps, chained refits) and is **not** the script behind the paper's US table -- see "Reproducing the paper" below.
-- Result folders (e.g. `station_comparison_*/`, `kaveri_station_comparison_*/`, `us_benchmark_full_*/`, `contribution_ablation_results_*/`): saved figures/CSVs from the scripts above.
-- `contribution_ablation_sweep_combined.csv`, `gap_init_comparison_sweep_combined.csv`/`_means.csv`: multi-seed robustness sweep results aggregated across runs (produced by the `*_sweep.py` scripts).
+- `rerun_expts/`: the experiments, tables and figures of the paper (see "Reproducing the paper").
+- `src/experiments/`: earlier exploratory scripts (windowed, chained-refit benchmarks, per-station plots). They are kept for reference and do **not** produce any number in the paper.
+- `tests/`: self-checks, run directly, e.g. `python tests/test_missforest.py` and `python tests/test_anchor_placebo.py` (the latter asserts that the library default is PIMF).
 
 ## Demo-Friendly Data Layout
 
@@ -65,29 +62,29 @@ anomalous US figures in earlier drafts of the paper.
 
 ## Reproducing the paper
 
-The experiments behind the paper's tables live in `rerun_expts/`, not in
-`src/experiments/`. `src/experiments/benchmark_1980_1990.py` implements the *windowed*
-(chained, refit-per-block) schedule and a single gap seed, so it reproduces the
-"Column-weighted MF (windowed)" arm -- not PIMF, which the paper fits once over the
-whole gapped record, and not the three-seed means every table reports.
+Every number in the paper comes from `rerun_expts/`. One cell is one (arm, seed, gap length) imputation, saved as a JSON file; the drivers skip cells that already exist, so a run can be resumed. The stored cells are in the `res_*` folders.
 
 ```bash
-python rerun_expts/drive.py      # Mahanadi: all arms + the celerity sweep -> res/
-python rerun_expts/drive2.py     # Kaveri, Mahanadi PIMF-L, linear          -> res2/
-python rerun_expts/drive3.py     # US                                       -> res3/
-python rerun_expts/summarise.py  # seed-mean tables, paired tests, sweeps
+# Main results, factorial ablation, cross-network comparison (transductive protocol, 5 seeds x 4 gap lengths)
+python rerun_expts/drive_ablation.py mahanadi kaveri us --protocol transductive --out res_main
+# Wave-celerity sweep (Section 4.4) and blend sweep (Section 3.9)
+python rerun_expts/drive_ablation.py mahanadi --protocol transductive --arms R,AR --celerities 25,50,75,150,200,350 --gaps 7,100 --out res_celerity
+python rerun_expts/drive_ablation.py mahanadi --protocol transductive --arms AR,ARLanc --alphas 0,0.25,0.5,0.75,1 --out res_alpha
+# Column-weighting invariance (Section 3.3.4)
+python rerun_expts/drive_ablation.py mahanadi --protocol transductive --arms wcol --out res_invariance
+python rerun_expts/check_invariance.py
+# Headline contrasts and tables
+python rerun_expts/headline_stats.py
+python rerun_expts/make_tables.py
+# Analyses that need the imputed series (supplementary tables S.T.4-S.T.7): see rerun_expts/README.md
+python rerun_expts/series_analysis.py
+python rerun_expts/make_figures.py --root $PWD
 ```
 
-Each driver skips cells whose JSON already exists, so a run can be resumed.
-`rerun_expts/README.md` maps each arm to the table it belongs to and records which
-paper claims the reruns confirmed, corrected or could not check.
-
-Not reproducible from this repository: the factorial feature ablation and the
-time-shift control (paper Tables 5 and 6) and the per-station decomposition
-(Table 8). The scripts that produced them were never committed.
+`rerun_expts/README.md` documents the protocol, the scored set (the gauges that take part in the connectivity graph), the metrics and each result folder. The arm `ARLanc` is PIMF; `base` is the seasonal-only configuration `{S}`; `vanilla` is MissForest on the discharge columns alone.
 
 ## Branches
 
-- `main` — canonical branch. Contains the full research codebase (`src/`, experiment scripts, benchmark results), the Hugging Face Space app (`app.py`) and the demo data layout above.
+- `main` — canonical branch. Contains the research codebase (`src/`, `rerun_expts/`), the Hugging Face Space app (`app.py`) and the demo data layout above.
 - `space-demo` — currently mirrors `main`; used as the active working branch for space/demo-data changes before they land on `main`.
 

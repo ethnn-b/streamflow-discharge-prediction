@@ -42,6 +42,8 @@ p.add_argument('--celerities', help='comma-separated wave-celerity sweep (km/day
                                     'upstream lags round to zero, which is the no-time-shift '
                                     'control holding columns and weights fixed.')
 p.add_argument('--out', default='res_ablation', help='results folder under rerun_expts/')
+p.add_argument('--pct', type=float, default=10.0, help='target missingness, percent')
+p.add_argument('--series', action='store_true', help='also save imputed series (npz) next to the json')
 p.add_argument('--workers', type=int, default=16)
 a = p.parse_args()
 
@@ -60,7 +62,7 @@ jobs = [(net, arm, f, s, g, al, c)
 
 def run(j):
     net, arm, f, s, g, al, c = j
-    tag = ('' if al is None else f'_a{al:g}') + ('' if c is None else f'_c{c:g}')
+    tag = ('' if a.pct == 10.0 else f'_p{a.pct:g}') + ('' if al is None else f'_a{al:g}') + ('' if c is None else f'_c{c:g}')
     out = os.path.join(HERE, a.out, f'{net}_{arm}_f{f}_s{s}_{g}{tag}.json')
     if os.path.exists(out):
         return
@@ -68,6 +70,9 @@ def run(j):
            '--arm', arm, '--fold', str(f), '--seed', str(s), '--gap', str(g),
            '--n-folds', str(a.n_folds), '--threads', '1', '--protocol', a.protocol,
            '--out', out]
+    cmd += ['--pct', str(a.pct)]
+    if a.series:
+        cmd += ['--series', os.path.join(HERE, a.out, 'series')]
     if al is not None:
         cmd += ['--alpha', str(al)]
     if c is not None:

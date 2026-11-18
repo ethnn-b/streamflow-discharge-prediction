@@ -1,8 +1,8 @@
 """Emit the LaTeX tables of Section 5.1 straight from the result JSONs.
 
-Writes <paper>/tables_main.tex, which main.tex \\inputs. Numbers in the paper are
-therefore never transcribed by hand: re-run this after any sweep and the tables
-follow. Usage: python rerun_expts/make_tables.py [net] [resdir] [paper_dir]
+Writes <paper>/tables_main.tex, which main.tex \\inputs. The paper's tables are hand-adapted
+copies of this output (see rerun_expts/README.md): re-run this after any sweep and
+check that the shared numbers still match. Usage: python rerun_expts/make_tables.py [net] [resdir] [paper_dir]
 """
 import contextlib, glob, io, json, os, sys, warnings
 import numpy as np
@@ -160,7 +160,7 @@ def routing_table():
         live[g_] = {c: any(round(d / c) >= 1 for d in ds) for c in CS}
     L = ['\\begin{table}[htbp]', '\\centering', '\\footnotesize',
          '\\caption{The time shift isolated per gauge. Each entry is the median over '
-         'five seeds of the percentage change in that gauge\'s RMSE from the $c=350$ '
+         'the ten seed $\\times$ gap cells (five seeds, gaps of 7 and 100 days) of the percentage change in that gauge\'s RMSE from the $c=350$ '
          'control, at which every travel-time lag rounds to zero, to the stated '
          'celerity; negative means the time shift reduced error. Both sides carry the '
          'routed column, the same upstream subset and the same weights, so the column '

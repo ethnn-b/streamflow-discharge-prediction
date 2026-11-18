@@ -39,20 +39,28 @@ Everything else is an ablation or a robustness variant and **is not proposed**:
   `--alpha`, `--celerity`, `--max-features`. `decode()` maps an arm name to feature
   flags; the `anc` / `ancd` / `plac` suffixes select `lag_mode` / `anchor_bands` /
   `routing_mode`.
-- `drive_ablation.py`, `drive_celerity.py`: parallel drivers. Both skip cells whose
-  JSON already exists, so a run resumes.
-- `make_tables.py`: writes `paper_latex_v4/tables_main.tex`. **The paper transcribes no
-  number by hand** -- re-run this after any sweep and every table follows.
+- `drive_ablation.py`: the parallel driver for every sweep (`--arms`, `--alphas`,
+  `--celerities`, `--pct`, `--series`). It skips cells whose JSON already exists, so a
+  run resumes.
+- `make_tables.py`: writes `<paper_dir>/tables_main.tex` (argv[3]). The tables in
+  `paper_latex_v10/tables/` are **hand-adapted copies** of its output (arm labels
+  renamed, ablation rows dropped, the networks and scopes tables restructured), not
+  generated files. After any sweep, regenerate and compare; the shared numbers must match.
+  `headline_stats.py` recomputes the nRMSE/nMAE/|PBIAS| contrasts per network and the
+  factorial main effects, including the US and Kaveri nMAE columns that `make_tables.py`
+  does not emit.
+- `check_invariance.py`: the Section 3.3.4 column-weighting check (1,200 trees).
 - `summarise_ablation.py`, `summarise_celerity.py`: console readouts, `argv[2]` = resdir.
 
-Result directories, all still live and all cited by the paper:
+Result directories:
 
 | dir | cells | used by |
 |---|---|---|
-| `res_main` | 820 | Tables 4-8, the factorial, cross-network |
+| `res_main` | 900 (380 Mahanadi, 180 Kaveri, 340 US) | Tables 4-8, the factorial, cross-network |
 | `res_celerity` | 120 | Section 4.4 |
-| `res_alpha` | 200 | Section 4.5 prose |
-| `res_ladder_short`, `res_ladder_long` | 20 each | the anchor ladder is fixed, not tuned: a shorter ladder is -0.12% (p=0.91) and a longer one +1.39% (p=0.36) on the primary scope, so the choice is immaterial |
+| `res_alpha` | 200 | Section 3.9 prose (alpha sweep) |
+| `res_invariance` | 20 | Section 3.3.4 (`wcol` arm vs the unscaled base; summarised by `check_invariance.py`) |
+| `res_ladder_short`, `res_ladder_long` | 0 (empty) | the ladder sensitivity quoted here earlier (-0.12%, +1.39%) cannot be reproduced from these directories; the paper only says the ladder is fixed, not tuned |
 
 ## Two protocols, both reported
 
@@ -76,28 +84,27 @@ did, leaves only ~5-7% of the record masked and keeps the densest stretch clean.
 ## Scored set: the connectivity graph
 
 `common.connected`. **Primary scope is the gauges that take part in the connectivity
-graph** - 12 of 18 live Mahanadi gauges. The rule is structural and checkable from `C`
+graph** - 12 of the 22 gauges in the archive (the network is the graph; `load_network` drops the rest outright). The rule is structural and checkable from `C`
 alone, with no reference to any result: for a gauge outside the graph
 `_routed_upstream` returns `None`, so R does not exist, and its aggregate weights
 reduce to exactly normalised inverse distance because the connectivity half of the
 blend is all zeros. Neither feature under test can reach such a gauge.
 
-It excludes six gauges, not one: `kantamal, kesinga, kurubhata, salebhata, sundergarh,
-tikarapara`. **All 18 are still reported as the secondary scope** and the direction of
-the result must be stated for both. This rule was written down after it was known that
+The rule drops ten of the 22 archive gauges: six absent from the connectivity map
+(`boudh, kantamal, kesinga, padampur, salebhata, tikarapara`), two with an all-zero row
+and column in `C` (`kurubhata, sundergarh`), and two with no observation in
+1980-1990 (`kelo, paramanpur`). The US keeps 6 of 10 and the Kaveri, which has no
+matrix, all 12. Dropped gauges are neither scored nor predictors, so there is no
+secondary all-gauge scope. The rule was written down after it was known that
 tikarapara dominates the pooled error, so it is not pre-registered and must not be
 presented as such; its justification stands on the structure of `C`, not on results.
-
-All 18 live gauges remain predictors and remain imputation targets in every arm. Only
-the four columns with no observation at all in the window are excluded, by
-`_dead_columns`, which already zero-weights them.
 
 ## Metrics: never pooled RMSE alone
 
 Pooled RMSE is variance-weighted, so it measures the largest gauge. Tikarapara is 61%
 of total network variance and 48-78% of pooled squared error; removing it does not fix
 this, because basantpur is then 47% of what remains. The reported scopes are therefore
-`gauge_conn` and `gauge`: each gauge's RMSE as a percentage of its own mean discharge,
+`gauge_conn` (the primary scope) and `gauge`, which are now the same set: each gauge's RMSE as a percentage of its own mean discharge,
 averaged over gauges with equal weight. RMSE, MAE, NSE, KGE and PBIAS are reported for
 every scope. `pooled` and `recv` are kept for continuity with v5 only.
 
@@ -116,8 +123,15 @@ length; `achieved_missing_pct` is recorded per cell and printed by the summarise
   fixed-length gaps are reported, and mixed lengths are the one case where PIMF has
   not been shown to beat vanilla (p = 0.21 on the co-author's branch).
 - Fold-protocol confirmation of the headline table has not been run.
-- 5 seeds throughout. The 7-day celerity shift (p = 0.083) and `{N}` (p = 0.068) are
-  the results that more seeds would settle; `ARLanc` vs `ARLancd` they would not.
+- 5 seeds throughout. The 7-day celerity shift (p = 0.067) and the receiver-scope
+  nRMSE contrast are the results that more seeds would settle.
 
-Closed since: alpha is swept over its whole range (Section 4.5, immaterial); celerity
+Closed since: alpha is swept over its whole range (paper Section 3.9, immaterial); celerity
 is fixed a priori at 100 km/day and swept only as sensitivity (Section 4.4).
+
+## Additional analyses (response to reviewers)
+
+`series_analysis.py` reads `res_series/` (PIMF, vanilla, linear, histmean, kNN, Kalman and Kalman with annual Fourier terms, 20 cells each, imputed series saved as `series/*.npz`) and `res_missing/` (5% and 20% missingness) and prints seasonal and flow-regime contrasts, peak magnitude and timing, per-gauge results, the upstream-downstream consistency check and the Kalman variant. They back Supplementary Tables S.T.4-S.T.7. The cells were produced with
+
+    python rerun_expts/drive_ablation.py mahanadi --protocol transductive --arms ARLanc,vanilla,linear,histmean,knn,kalman,kalmanfour --out res_series --series
+    python rerun_expts/drive_ablation.py mahanadi --protocol transductive --arms ARLanc,vanilla,linear,knn --out res_missing --pct 20   # and 5

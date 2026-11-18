@@ -37,3 +37,13 @@ graphify-out/
 
 # Quarantined stale results pending deletion
 _stale_20261102/
+
+# LaTeX build artefacts
+*.aux
+*.log
+*.out
+*.spl
+*.xdv
+*.fls
+*.fdb_latexmk
+tools_diff/build/
